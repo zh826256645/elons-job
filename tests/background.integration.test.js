@@ -14,14 +14,16 @@ function createArea() {
   };
 }
 
-function createBackgroundHarness() {
+function createBackgroundHarness(harnessOptions = {}) {
   const local = createArea();
   const session = createArea();
   let messageListener;
   let installedListener;
   let startupListener;
   const requests = [];
+  const profileRequests = [];
   const createdTabs = [];
+  const notifications = [];
   let activeRequests = 0;
   let maxActiveRequests = 0;
   const chrome = {
@@ -33,12 +35,20 @@ function createBackgroundHarness() {
       getURL(file) { return `chrome-extension://test/${file}`; },
       openOptionsPage() { return Promise.resolve(); }
     },
-    tabs: { create(options) { createdTabs.push(options); return Promise.resolve(); } }
+    tabs: {
+      create(options) { createdTabs.push(options); return Promise.resolve(); },
+      query() { return Promise.resolve([{ id: 1 }]); },
+      sendMessage(tabId, message) { notifications.push({ tabId, message }); return Promise.resolve(); }
+    }
   };
   const sandbox = {
     chrome,
     console,
     fetch: async (url, options) => {
+      if (options.method === 'GET') {
+        profileRequests.push({ url, options });
+        return profileResponse(url, options);
+      }
       activeRequests += 1;
       maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
       requests.push({ url, options, body: JSON.parse(options.body) });
@@ -47,7 +57,7 @@ function createBackgroundHarness() {
         if (options.body.includes('network-fail')) throw new TypeError('network failed');
         const body = JSON.parse(options.body);
         const answers = {};
-        Object.keys(body.questions).forEach((id) => { answers[id] = { type: 'noul', noul: body.state.content === 'hide-me' ? (id === 'sexual_content' ? 0.93 : 0.12) : 0.08 }; });
+        Object.keys(body.questions).forEach((id) => { answers[id] = { type: 'noul', noul: harnessOptions.scores ? harnessOptions.scores[id] || 0 : body.state.content === 'hide-me' ? (id === 'sexual_content' ? 0.93 : 0.12) : 0.08 }; });
         return { ok: true, status: 200, text: async () => JSON.stringify({ model: 'jev-1.13.0', answers, usage: { input_tokens: 1, output_tokens: 1 } }) };
       } finally {
         activeRequests -= 1;
@@ -69,8 +79,11 @@ function createBackgroundHarness() {
     Map,
     Set,
     Uint8Array,
-    TextEncoder
+    TextEncoder,
+    TextDecoder,
+    URL
   };
+  const profileResponse = harnessOptions.profileResponse || (async () => ({ ok: false, status: 403 }));
   vm.createContext(sandbox);
   const core = fs.readFileSync(path.join(__dirname, '..', 'src/shared/core.js'), 'utf8');
   sandbox.importScripts = () => vm.runInContext(core, sandbox);
@@ -80,8 +93,118 @@ function createBackgroundHarness() {
   assert.equal(typeof installedListener, 'function');
   assert.equal(typeof startupListener, 'function');
   const dispatch = (message) => new Promise((resolve) => messageListener(message, {}, resolve));
-  return { dispatch, requests, local, session, createdTabs, startupListener, get maxActiveRequests() { return maxActiveRequests; } };
+  return { dispatch, requests, profileRequests, notifications, local, session, createdTabs, startupListener, get maxActiveRequests() { return maxActiveRequests; } };
 }
+
+test('scope settings persist independently and notify X tabs without secret data', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness();
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { filterForYou: true, filterReplies: false } });
+  const state = await harness.dispatch({ type: E.MESSAGE.GET_STATE });
+  assert.equal(state.config.filterForYou, true);
+  assert.equal(state.config.filterReplies, false);
+  assert.deepEqual(harness.notifications.map((entry) => JSON.parse(JSON.stringify(entry))), [{ tabId: 1, message: { type: 'CONFIG_CHANGED' } }]);
+});
+
+test('oversized public profiles are cancelled and fall back to username evidence', async () => {
+  const E = require('../src/shared/core.js');
+  let cancelled = false;
+  const harness = createBackgroundHarness({ profileResponse: async () => ({ ok: true, body: { getReader: () => ({
+    read: async () => ({ done: false, value: new Uint8Array(524289) }),
+    cancel: async () => { cancelled = true; },
+    releaseLock() {}
+  }) } }) });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  const comment = { author: 'Example @example', handle: 'example', text: '' };
+  const result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { text: E.composeComment(comment), comment } });
+  assert.equal(result.ok, true);
+  assert.equal(cancelled, true);
+  assert.equal(harness.requests[0].body.state.content, '[用户名] Example @example');
+});
+
+test('media-only classification supplements author evidence and caches public profiles', async () => {
+  const E = require('../src/shared/core.js');
+  const html = '<script type="application/ld+json">{"@type":"Person","url":"https://x.com/example","description":"公开作者简介"}</script>';
+  const harness = createBackgroundHarness({ profileResponse: async () => ({ ok: true, text: async () => html }) });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  const comment = { author: 'Example @example', handle: 'example', text: '' };
+  const payload = { text: E.composeComment(comment), comment };
+  const results = await Promise.all([harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload }), harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload })]);
+  assert.ok(results.every((result) => result.ok));
+  assert.equal(harness.profileRequests.length, 1);
+  assert.equal(harness.requests.length, 1);
+  assert.match(harness.requests[0].body.state.content, /\[作者公开简介\] 公开作者简介/);
+  assert.equal(harness.profileRequests[0].url, 'https://x.com/example');
+  assert.equal(harness.profileRequests[0].options.credentials, 'omit');
+  assert.equal(harness.profileRequests[0].options.headers.Authorization, undefined);
+  await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+  assert.equal(harness.profileRequests.length, 1);
+  await harness.dispatch({ type: E.MESSAGE.CLEAR_CACHE });
+  await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+  assert.equal(harness.profileRequests.length, 2);
+});
+
+test('unavailable public profiles fall back to usernames and are negatively cached', async () => {
+  const E = require('../src/shared/core.js');
+  for (const profileResponse of [
+    async () => ({ ok: false, status: 403 }),
+    async () => { throw Object.assign(new Error('timeout'), { name: 'AbortError' }); },
+    async () => ({ ok: true, text: async () => '<html>Log in</html>' })
+  ]) {
+    const harness = createBackgroundHarness({ profileResponse });
+    await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+    const comment = { author: 'Example @example', handle: 'example', text: '' };
+    const payload = { text: E.composeComment(comment), comment };
+    assert.equal((await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload })).ok, true);
+    assert.equal(harness.requests[0].body.state.content, '[用户名] Example @example');
+    await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+    assert.equal(harness.profileRequests.length, 1);
+  }
+});
+
+test('For you enriches author biographies even when a media post has body text', async () => {
+  const E = require('../src/shared/core.js');
+  const html = '<script type="application/ld+json">{"@type":"Person","url":"https://x.com/example","description":"公开作者简介"}</script>';
+  const harness = createBackgroundHarness({ profileResponse: async () => ({ ok: true, text: async () => html }) });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { filterForYou: true } });
+  const comment = { author: 'Example @example', handle: 'example', text: 'https://clips.example/movie.mp4', links: ['https://clips.example/movie.mp4'], hasMedia: true };
+  const result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { text: E.composeComment(comment), comment, scope: 'forYou' } });
+  assert.equal(result.ok, true);
+  assert.equal(harness.profileRequests.length, 1);
+  assert.match(harness.requests[0].body.state.content, /\[作者公开简介\] 公开作者简介/);
+  assert.match(harness.requests[0].body.state.content, /\[外链\]/);
+  assert.equal('assets' in harness.requests[0].body, false);
+});
+
+test('link-only spam is blocked through the real pipeline in For you but keeps reply safeguards', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness({ scores: { sexual_content: 0.13, sexual_solicitation: 0.32, spam_behavior: 0.8 } });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { filterForYou: true } });
+  const comment = { author: 'Example @example', handle: 'example', text: 'https://clips.example/video.mp4', links: ['https://clips.example/video.mp4'], hasMedia: true };
+  const payload = { text: E.composeComment(comment), comment };
+  const forYou = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { ...payload, scope: 'forYou' } });
+  const reply = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { ...payload, scope: 'replies' } });
+  assert.equal(forYou.shouldHide, true);
+  assert.equal(forYou.matches[0].ruleId, 'spam_behavior');
+  assert.equal(reply.shouldHide, false);
+  const cached = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { ...payload, scope: 'forYou' } });
+  assert.equal(cached.cache, 'hit');
+  assert.equal(cached.shouldHide, true);
+  assert.equal(harness.requests.length, 2);
+  assert.equal(harness.profileRequests.length, 1);
+  assert.ok(harness.requests.every((request) => !('assets' in request.body)));
+});
+
+test('disabled scopes do not issue classification requests', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness();
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  const result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { text: 'hide-me', scope: 'forYou' } });
+  assert.equal(result.shouldHide, false);
+  assert.equal(harness.requests.length, 0);
+});
 
 test('background pipeline keeps the API key out of the request body, caches duplicates, and fails open', async () => {
   const harness = createBackgroundHarness();

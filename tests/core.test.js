@@ -41,7 +41,7 @@ test('comment extraction and TypeSafe content include the display name and handl
     }
   };
   const comment = E.extractComment(article);
-  assert.deepEqual(comment, { tweetId: '123', text: '恭喜发财，祝你有美好的一天', author: '卫潼笑♥处男免费♥ @example' });
+  assert.deepEqual(comment, { tweetId: '123', text: '恭喜发财，祝你有美好的一天', author: '卫潼笑♥处男免费♥ @example', handle: 'example' });
   const composed = E.composeComment(comment);
   assert.match(composed, /\[用户名\] 卫潼笑♥处男免费♥ @example/);
   assert.match(composed, /\[评论正文\] 恭喜发财，祝你有美好的一天/);
@@ -219,6 +219,77 @@ test('X scope recognises only detail URLs and skips the root tweet', () => {
   assert.equal(E.isTweetDetailUrl('https://x.com/home'), false);
   const fakeArticle = { querySelector(selector) { return selector.includes('/status/') ? { getAttribute: () => '/someone/status/123456789' } : { textContent: 'root' }; } };
   assert.equal(E.isReplyArticle(fakeArticle, url), false);
+});
+
+test('scope settings migrate effective reply behaviour and require opt-in for For you', () => {
+  for (const legacy of [{}, { commentsOnly: false }, { commentsOnly: true }]) {
+    const config = E.normalizeConfig(legacy);
+    assert.equal(config.filterReplies, true);
+    assert.equal(config.filterForYou, false);
+    assert.equal(E.scopeEnabled(config, 'replies'), true);
+    assert.equal(E.scopeEnabled(config, 'forYou'), false);
+  }
+  const config = E.normalizeConfig({ filterReplies: false, filterForYou: true });
+  assert.equal(E.scopeEnabled(config, 'replies'), false);
+  assert.equal(E.scopeEnabled(config, 'forYou'), true);
+  assert.equal(E.scopeEnabled({ ...config, enabled: false }, 'forYou'), false);
+  assert.equal(E.scopeEnabled(config, ''), false);
+});
+
+test('For you requires a positively selected home tab and never treats Following as For you', () => {
+  const doc = (labels) => ({ querySelectorAll: () => labels.map((textContent) => ({ textContent })) });
+  for (const label of ['For you', '为你推荐', '推荐', '為你推薦']) {
+    assert.equal(E.pageScope('https://x.com/home?x=1', doc([label])), 'forYou');
+  }
+  for (const labels of [[], ['Following'], ['正在关注'], ['A list']]) {
+    assert.equal(E.pageScope('https://x.com/home', doc(labels)), '');
+  }
+  for (const path of ['search', 'someone', 'i/lists/123', 'home/other']) {
+    assert.equal(E.pageScope(`https://x.com/${path}`, doc(['For you'])), '');
+  }
+  assert.equal(E.pageScope('https://x.com/a/status/123', doc([])), 'replies');
+});
+
+test('extraction includes quoted text and allows media-only author evidence', () => {
+  let texts = [{ textContent: '外层正常讨论' }, { textContent: '引用中的招揽文字' }];
+  let author = 'Example @example';
+  const article = {
+    querySelectorAll: () => texts,
+    querySelector(selector) {
+      if (selector.endsWith(' time')) return { closest: () => ({ getAttribute: () => '/example/status/456' }) };
+      if (selector === E.SELECTORS.userName) return { textContent: author };
+      return null;
+    }
+  };
+  let comment = E.extractComment(article);
+  assert.equal(comment.tweetId, '456');
+  assert.match(comment.text, /外层正常讨论.*\[引用文字\] 引用中的招揽文字/);
+  texts = [];
+  comment = E.extractComment(article);
+  assert.equal(comment.text, '');
+  assert.match(E.composeComment(comment), /\[用户名\] Example @example/);
+  assert.match(E.composeComment({ ...comment, biography: '作者简介' }), /\[作者公开简介\] 作者简介/);
+  author = '';
+  assert.equal(E.extractComment(article), null);
+});
+
+test('profile biographies require structured data identifying the requested author', () => {
+  const profile = (person) => `<script type="application/ld+json">${JSON.stringify({ '@type': 'ProfilePage', mainEntity: person })}</script>`;
+  const person = { '@type': 'Person', url: 'https://x.com/Example', description: '公开 &amp; 简介' };
+  assert.equal(E.profileBiography(profile(person), 'example'), '公开 & 简介');
+  assert.equal(E.profileBiography(profile(person), 'other'), '');
+  assert.equal(E.profileBiography(profile({ ...person, url: 'https://x.com/example/other' }), 'example'), '');
+  assert.equal(E.profileBiography('<meta name="description" content="Log in to X">', 'example'), '');
+  assert.equal(E.profileBiography('<script type="application/ld+json">broken</script>', 'example'), '');
+  assert.equal(E.profileBiography('x'.repeat(524289), 'example'), '');
+  for (const handle of ['../home', 'home', 'i', 'https://example.com', 'too_long_for_an_x_handle']) assert.equal(E.normalizeHandle(handle), '');
+});
+
+test('author biography changes invalidate classification cache identity', async () => {
+  const comment = { author: 'Example @example', text: '' };
+  const first = E.composeComment({ ...comment, biography: 'first public biography' });
+  const second = E.composeComment({ ...comment, biography: 'updated public biography' });
+  assert.notEqual(await E.cacheKey(first, E.DEFAULT_RULES), await E.cacheKey(second, E.DEFAULT_RULES));
 });
 
 test('storage config sanitises keys for UI and keeps keys out of normal config', async () => {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Elon的工作",
   "version": "0.1.0",
-  "description": "只处理 X 评论区的高置信度色情、性暗示与色情引流评论。",
+  "description": "按规则过滤 X 详情页评论和可选的 For you 帖子，隐藏高置信度命中内容并支持恢复。",
   "icons": {
     "16": "assets/icon16.png",
     "32": "assets/icon32.png",

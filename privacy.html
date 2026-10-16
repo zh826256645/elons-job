@@ -169,31 +169,32 @@
       <div class="content">
         <div class="notice">
           <strong>一句话说明</strong>
-          <p>扩展会把 X Tweet Detail 回复中的用户名和评论正文发送给 TypeSafe，用于内容分类；我们不建立开发者后端，不出售数据，也不用于广告画像。</p>
+          <p>扩展会把所启用范围中的用户名和评论正文（或帖子正文、引用文字），以及可获取的作者公开简介发送给 TypeSafe，用于内容分类；我们不建立开发者后端，不出售数据，也不用于广告画像。</p>
         </div>
 
         <section id="scope">
           <h2>适用范围</h2>
-          <p>本政策适用于 Chrome 扩展“Elon 的工作”（以下简称“扩展”）及其在 X（<code>x.com</code>）Tweet Detail 页面中的评论过滤功能。</p>
-          <p>扩展只处理回复，不处理主帖正文、首页推荐流或私信。扩展开发者不是 X 或 TypeSafe 的官方代表。</p>
+          <p>本政策适用于 Chrome 扩展“Elon 的工作”（以下简称“扩展”）及其在 X（<code>x.com</code>）详情页评论和可选 For you 信息流中的内容过滤功能。</p>
+          <p>详情页评论默认开启；首页 For you 帖子过滤需在设置中主动开启。两个范围独立控制；详情页根帖、Following、搜索、用户主页、列表和私信不处理。扩展开发者不是 X 或 TypeSafe 的官方代表。</p>
         </section>
 
         <section id="data">
           <h2>处理哪些数据</h2>
           <div class="data-grid">
-            <div class="data-item"><strong>X 用户名与评论正文</strong><span>从当前 Tweet Detail 的回复中读取，用于生成过滤判定；正文可能包含 emoji、标点和必要的结构信号。</span></div>
+            <div class="data-item"><strong>X 用户名与评论正文</strong><span>从当前启用范围的评论或 For you 帖子中读取（含引用文字），用于生成过滤判定；输入包括页面展示的外链、链接卡片文字、emoji、标点和必要的结构信号；不读取或发送媒体画面，不访问外链站点。</span></div>
+            <div class="data-item"><strong>作者公开简介</strong><span>For you 帖子及带媒体的评论会按需无凭据读取作者公开 X 资料页，仅使用能核对作者身份的简介。简介在浏览器会话内缓存最多 24 小时，失败结果缓存 10 分钟，最多 200 位作者；可在设置中清空缓存。获取失败时按用户名识别。</span></div>
             <div class="data-item"><strong>TypeSafe API Key</strong><span>由用户主动输入，保存在当前浏览器的本地存储中，仅用于向 TypeSafe 发起鉴权请求。</span></div>
             <div class="data-item"><strong>本地配置与统计</strong><span>包括启用状态、规则、阈值、检查数量、隐藏数量和请求数量，用于维持扩展设置与界面显示。</span></div>
             <div class="data-item"><strong>临时分类缓存</strong><span>扩展使用浏览器会话存储缓存重复评论的分类结果，缓存 key 使用内容和规则的 hash，不保存评论原文。</span></div>
           </div>
           <h3>不会收集的内容</h3>
-          <p>扩展不会读取或收集浏览历史、Cookie、X 登录凭证、私信、图片、视频、头像内容或主帖正文，也不会建立用户画像。</p>
+          <p>扩展不会读取或收集浏览历史、Cookie、X 登录凭证、私信、图片、视频、头像内容或详情页根帖正文，也不会建立用户画像。</p>
         </section>
 
         <section id="use">
           <h2>如何使用数据</h2>
           <ul>
-            <li>将用户名和评论正文发送给 TypeSafe，获取色情、性暗示、色情引流和 spam 规则的概率结果。</li>
+            <li>将用户名和评论正文（或帖子正文、引用文字）、可获取的作者公开简介发送给 TypeSafe，获取色情、性暗示、色情引流和 spam 规则的概率结果。</li>
             <li>在本地结合规则阈值、页面重复模板、emoji 结构和不可见字符信号决定是否隐藏评论。</li>
             <li>使用本地配置、统计和临时缓存，减少重复请求并控制 API 成本。</li>
           </ul>
@@ -220,8 +221,8 @@
 
         <section id="controls">
           <h2>你的控制权</h2>
-          <p>你可以随时暂停保护、关闭单项规则、修改阈值、关闭评论检查按钮、删除 API Key 或清除本地缓存。扩展只改变本地页面显示，不删除或修改 X 上的原评论。</p>
-          <p>首次输入 API Key 前，请确认你理解并同意：评论用户名和正文会被发送给 TypeSafe 进行分类。</p>
+          <p>你可以随时暂停保护、独立开关详情页评论或 For you 过滤、关闭单项规则、修改阈值、关闭评论检查按钮、删除 API Key 或清除本地缓存。扩展只改变本地页面显示，不删除或修改 X 上的原评论。</p>
+          <p>首次输入 API Key 前，请确认你理解并同意：用户名、正文（含引用文字）及可获取的作者公开简介会被发送给 TypeSafe 进行分类。</p>
         </section>
 
         <section id="contact">
