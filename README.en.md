@@ -1,60 +1,104 @@
 # Elon's Job
 
-A local-first Chrome Manifest V3 extension that filters replies on X (`x.com/{user}/status/{id}`) detail pages by default, with optional For you post filtering in settings. It uses the user's own TypeSafe Jev API key to display recoverable hidden placeholders for high-confidence pornographic, sexually suggestive, and promotional comments.
+A Chrome Manifest V3 extension for X. Use your own TypeSafe Jev API key to filter detail-page replies and optional For you posts. Matching content is hidden locally with an option to restore it in place.
 
-[Privacy Policy](privacy.html)
+[中文](README.md) · [Privacy Policy](privacy.html) · [MIT License](LICENSE)
 
-[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/elon%E7%9A%84%E5%B7%A5%E4%BD%9C/aillmgiicpcpnnggaahlkifchigmfome)
+## Current features
 
-[中文](README.md)
+### Independent filtering scopes
 
-[MIT License](LICENSE)
+| Scope | Default | Behavior |
+| --- | --- | --- |
+| Detail-page replies | On | Filters replies and skips the root post |
+| Home For you feed | Off | When enabled, filters the selected For you feed, including reposts, ads and quoted text |
 
-## Local Manual Build and Installation
+The global protection switch controls both scopes. Following, search, profiles, lists and direct messages are excluded. Disabling a scope or leaving it restores hidden content and invalidates pending results.
 
-Requirements: Node.js 20 or later.
+### Text, links and author context
 
-Run the following commands from the project root to test, validate, and generate the Chrome extension bundle:
+- Combines body and quoted text with displayed external links and link-card text.
+- Attempts to retrieve public author biographies for For you posts and media replies, accepting only information matched to the author.
+- Falls back to available body, username and link text when a biography is unavailable. Media-only posts can use author names; posts without usable text evidence are skipped.
+- Includes three rules: sexual content, sexual solicitation and spam, with default thresholds of 65%, 75% and 78% respectively.
+- Supports individual rule switches, threshold adjustment and natural-language custom rules that can be added, edited or deleted.
+- Link-only For you posts can be hidden when the spam score reaches its threshold. Normal discussions and detail-page replies retain the existing safeguards; an external link alone does not trigger hiding.
+
+**The extension analyzes text only. It does not inspect or send image/video pixels, or visit external sites linked from posts.** Explicit media with ordinary captions can still be missed.
+
+### Recoverable hiding and cost controls
+
+- Hides the entire matching card, displays its rule and confidence, and offers an in-place restore button.
+- Provides per-item checks, rechecks and page inspection statistics.
+- Uses classification caching, request deduplication, concurrency limits and a daily request cap. Defaults are 3 concurrent requests and 100,000 requests per day, adjustable in settings.
+- Leaves content visible when the API fails, times out, has no key or reaches the request cap.
+- Caches public author information in browser session storage: successful lookups for 24 hours, failures for 10 minutes, up to 200 authors. The settings cache action clears it as well.
+
+The daily cap limits request count; it is not a free allowance. TypeSafe bills actual text classification usage.
+
+## Local installation and updates
+
+Requirements: Node.js 20 or later and your own TypeSafe API key.
+
+Run from the project root:
 
 ```bash
 npm test
 npm run check
 npm run package
+```
+
+Then in Chrome:
+
+1. Open `chrome://extensions` and enable Developer mode.
+2. Click **Load unpacked** and select this project's generated `dist/` directory.
+3. Configure and test your TypeSafe API key in the first-install onboarding page.
+4. Enable **过滤 For you 帖子** in settings if you want home-feed filtering.
+5. Open or refresh X.
+
+After updating the code, run `npm run package`, click **Reload** on the extension's card in Chrome, and refresh X. Existing installations do not need to load the directory again.
+
+## Interface preview
+
+Recoverable placeholders in the reply view:
+
+<p align="center">
+  <img src="docs/screenshots/comment-filtering.png" alt="Reply filtering on X" width="720">
+</p>
+
+Custom rule editor:
+
+<p align="center">
+  <img src="docs/screenshots/custom-rule-editor.png" alt="Custom filtering rule editor" width="720">
+</p>
+
+## Data and privacy
+
+- The API key is stored locally and read only by the service worker for TypeSafe authentication. It is not written to the X page DOM or debug logs.
+- Usernames, body and quoted text, links, card text and available public biographies are sent directly to TypeSafe over HTTPS, without a developer-operated backend.
+- Public author pages are requested without credentials. Login pages, HTTP 403 responses or missing metadata can make biographies unavailable.
+- Classification results are cached under hashes of input text, rules, model and scope; raw post text is not stored. Public biographies have a separate cache.
+- The extension does not read browsing history, cookies, X login credentials or direct messages, or modify original posts on X.
+- It does not request `tabs`, `history`, `cookies`, `webRequest` or `<all_urls>` permissions.
+
+See the [Privacy Policy](privacy.html) for details.
+
+## Development checks
+
+`npm test` uses deterministic mocks for configuration migration, scope detection, quote/link extraction, profile validation and fallback, decision thresholds, cache isolation, concurrency and fail-open behavior. It does not call the real TypeSafe API.
+
+The evaluation corpus is in `tests/fixtures/comment-corpus.json`. To evaluate the real model, set `TYPESAFE_API_KEY` in `.env` or the environment and run the commands below as needed. **These commands call the real API and incur charges; they are not installation steps.**
+
+```bash
+# Small-sample evaluation
+npm run benchmark -- --limit=10
+
+# Debug specific samples; separate multiple IDs with commas
+npm run benchmark -- --id=hide-040
+npm run benchmark -- --ids=hide-040,hide-041
+
+# Full-corpus evaluation
 npm run benchmark
 ```
 
-After the build completes, open `chrome://extensions`, enable Developer mode, click “Load unpacked”, and select the generated `dist/` directory. The onboarding page opens automatically the first time you install the extension.
-
-## Preview
-
-<p align="center">
-  <img src="docs/screenshots/comment-filtering.png" alt="Comment filtering on X" width="720">
-</p>
-
-Matching comments are replaced with recoverable hidden placeholders. The settings center defaults to a daily TypeSafe request limit of 100,000 and provides caching, concurrency, and cost protections.
-
-Filtering rules are customizable: you can edit rule names, hide conditions, exclusion conditions, and sensitivity to fit different community moderation needs.
-
-<p align="center">
-  <img src="docs/screenshots/custom-rule-editor.png" alt="Custom comment filtering rule editor" width="720">
-</p>
-
-## Security Boundaries
-
-- The API key is read only by the service worker and stored in `chrome.storage.local`; the popup and settings page can only save or test it through the messaging protocol.
-- The content script sends post IDs, the active filtering scope, usernames, and body/quoted text to the service worker. For you posts and media replies include an author handle for optional public biography lookup. Expanded links and link-card text are included as text evidence. It does not read cookies, history, X login information, or the root post on detail pages.
-- TypeSafe requests use `https://api.typesafe.ai/v1/systemone`. Unexpected API responses, timeouts, 401, 429, and 5xx errors fail open.
-- Classification cache keys hash the final input (including any biography), rule fingerprint, and model; raw post text is not stored. A separate session cache stores public author biographies and is also cleared by the settings cache action.
-- `manifest.json` does not request `tabs`, `history`, `cookies`, `webRequest`, or `<all_urls>`.
-
-## Test Coverage
-
-`tests/` covers default rules, rule compilation, text normalization, Root Tweet/detail-page scope, SHA-256 cache keys, threshold decisions, API response parsing, storage redaction, and Fail-Open error classification. Actual TypeSafe calls require the user's own API key, so automated tests use deterministic mocks and do not incur API costs.
-
-The local corpus is located at `tests/fixtures/comment-corpus.json`. It includes normal comments, medical/educational content, ordinary romance, appearance-related comments, implicit sexual hints, private content, contact information, emoji, long numeric IDs, sexually explicit or promotional username signals, and the “搞hs / 小马开大车” plus screenshot-annotated `emoji spam` samples. The `emoji spam` samples additionally record `spam: true` and are evaluated separately by the enabled `spam_behavior` rule. That rule uses both TypeSafe scores and duplicate-template signals from emoji-stripped page text; matching samples are included in the final hide decision. The current `npm run benchmark` excludes these samples from the sexual-content rule metrics, but reports separate Precision/Recall/F1 metrics for `spam-samples` rather than treating them as successful samples. After configuring `TYPESAFE_API_KEY` in `.env`, run the benchmark to print only Precision, Recall, F1, false-positive/false-negative IDs, and latency; the API key is never printed. Use `--limit=10` for a small-sample check or `--json` for machine-readable output without original text.
-
-You can also run an exact regression by corpus ID: `bun run benchmark -- --id=hide-040`. A single ID prints detailed evaluation information, including the username, body, emoji-structure signals, default-rule probability/threshold/match status, final decision, and the exact payload sent. Separate multiple IDs with commas: `bun run benchmark -- --ids=hide-040,hide-041`.
-
-## Filtering scope
-
-Reply filtering is on by default; For you post filtering is a separate opt-in setting. Both use the same rules. Following, search, profiles, lists, and the root post on detail pages are excluded. Quoted text is included. For you posts and media replies use author names and, when available, a public profile biography matched to the author and fetched without credentials. Links and card text supplement the body. Link-only For you posts may be hidden when the spam score reaches the configured threshold; normal discussions and replies retain the existing safeguards. External links are not visited for classification. Missing biographies leave the available body, author and link text in use. The extension does not analyze image or video pixels. Turning a scope off restores hidden content and invalidates pending results.
+Evaluation reports Precision, Recall, F1, false-positive/false-negative IDs and latency, with separate spam metrics. Single-sample debugging also prints the input text and per-rule scores, but never the API key.
