@@ -5,7 +5,9 @@
   const state = {
     config: null,
     route: '',
+    generation: 0,
     processed: new Map(),
+    articleKeys: new WeakMap(),
     commentStatuses: new Map(),
     revealed: new Set(),
     controls: new Map(),
@@ -46,12 +48,22 @@
     (document.head || document.documentElement).appendChild(link);
   }
 
-  function activeDetail() {
-    return E.isTweetDetailUrl(location.href);
+  function activeScope() {
+    return E.pageScope(location.href, document);
+  }
+
+  function contextKey() {
+    return `${location.href}|${activeScope()}`;
+  }
+
+  function requestIsCurrent(article, comment, generation) {
+    if (generation !== state.generation || contextKey() !== state.route || !E.scopeEnabled(state.config, activeScope()) || !state.hasApiKey || !article.isConnected) return false;
+    const current = E.extractComment(article);
+    return Boolean(current && articleKey(current) === articleKey(comment));
   }
 
   function articleKey(comment) {
-    return `${comment.tweetId}:${comment.author || ''}:${comment.text}`;
+    return `${comment.tweetId}:${comment.author || ''}:${comment.text}:${JSON.stringify({ links: comment.links || [], cardText: comment.cardText || '', hasMedia: Boolean(comment.hasMedia) })}`;
   }
 
   function report(action) {
@@ -99,6 +111,7 @@
     if (placeholder && placeholder.matches('[data-elon-work-placeholder]')) placeholder.remove();
     article.classList.remove('elon-work-hidden', 'elon-work-pending');
     article.style.removeProperty('display');
+    article.style.removeProperty('visibility');
     syncControlsForArticle(article);
   }
 
@@ -126,12 +139,13 @@
     const copy = document.createElement('div');
     copy.className = 'elon-work-placeholder-copy';
     const title = document.createElement('strong');
-    title.textContent = state.config && state.config.showPlaceholder === false ? '已隐藏一条评论' : 'Elon的工作隐藏了一条评论';
+    const noun = activeScope() === 'forYou' ? '帖子' : '评论';
+    title.textContent = state.config && state.config.showPlaceholder === false ? `已隐藏一条${noun}` : `Elon的工作隐藏了一条${noun}`;
     copy.appendChild(title);
     const details = document.createElement('div');
     details.className = 'elon-work-placeholder-details';
     const config = state.config || {};
-    details.textContent = state.config && state.config.showPlaceholder === false ? '点击“查看评论”恢复' : matches.map((match) => {
+    details.textContent = state.config && state.config.showPlaceholder === false ? `点击“查看${noun}”恢复` : matches.map((match) => {
       if (config.showConfidence === false) return match.name;
       const score = match.source === 'combined-risk-signal'
         ? ` · 合计 ${Math.round(match.combinedScore * 100)}%`
@@ -144,7 +158,7 @@
     const restore = document.createElement('button');
     restore.type = 'button';
     restore.className = 'elon-work-restore';
-    restore.textContent = '查看评论';
+    restore.textContent = `查看${noun}`;
     restore.addEventListener('click', () => {
       state.revealed.add(articleKey(comment));
       article.dataset.elonWorkRevealed = 'true';
@@ -305,7 +319,7 @@
     const pending = Boolean(result && result.pending);
     control.button.textContent = pending ? '检查中' : '检查';
     control.button.disabled = pending;
-    control.popoverTitle.textContent = '评论检查';
+    control.popoverTitle.textContent = activeScope() === 'forYou' ? '帖子检查' : '评论检查';
     control.recheck.hidden = true;
     control.rows.replaceChildren();
 
@@ -327,7 +341,7 @@
       control.detail.textContent = 'TypeSafe 正在返回结果。';
     } else if (result.ok) {
       control.status.textContent = result.shouldHide ? '命中隐藏规则' : '未命中隐藏阈值';
-      control.detail.textContent = result.shouldHide ? '这条评论已按当前规则处理。' : '这条评论当前保持显示。';
+      control.detail.textContent = result.shouldHide ? '此内容已按当前规则处理。' : '此内容当前保持显示。';
       control.recheck.hidden = false;
       control.recheck.textContent = '重新检查';
       renderResultRows(control, result);
@@ -342,13 +356,13 @@
   function createCheckControl(article, comment, identity, hash) {
     const host = document.createElement('div');
     host.className = 'elon-work-check-host';
-    host.setAttribute('aria-label', '评论检查');
+    host.setAttribute('aria-label', '内容检查');
 
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'elon-work-check-button';
     button.textContent = '检查';
-    button.title = '检查这条评论';
+    button.title = '检查此内容';
     host.appendChild(button);
 
     const popover = document.createElement('div');
@@ -421,7 +435,8 @@
   function renderMonitor() {
     const monitor = state.monitor;
     if (!monitor) return;
-    const detail = !activeDetail() ? '仅在 Tweet Detail 检查回复' : !state.config || !state.config.enabled ? '保护已暂停' : !state.hasApiKey ? '等待配置 TypeSafe API Key' : state.pagePending ? '正在检查当前页面' : state.pageErrors ? '部分检查失败，评论保持显示' : '当前页面检查完成';
+    const scope = activeScope();
+    const detail = !scope ? '此页面不在过滤范围' : !state.config || !state.config.enabled ? '保护已暂停' : !E.scopeEnabled(state.config, scope) ? '当前范围过滤已关闭' : !state.hasApiKey ? '等待配置 TypeSafe API Key' : state.pagePending ? '正在检查当前页面' : state.pageErrors ? '部分检查失败，内容保持显示' : '当前页面检查完成';
     monitor.status.textContent = detail;
     monitor.summary.textContent = `已检查 ${state.pageChecked} · 隐藏 ${state.pageHidden}`;
     monitor.checked.textContent = String(state.pageChecked);
@@ -491,11 +506,14 @@
   }
 
   async function classifyArticle(article, comment, options) {
+    const generation = state.generation;
+    if (!requestIsCurrent(article, comment, generation)) return;
     const config = state.config || E.createDefaultConfig();
     const opts = options || {};
     const key = articleKey(comment);
     const inspectionContent = E.composeComment(comment);
     const hash = opts.hash || await E.hashText(inspectionContent);
+    if (!requestIsCurrent(article, comment, generation)) return;
     const identity = opts.identity || `${key}:${hash}`;
     const control = ensureCheckControl(article, comment, identity, hash);
     const previous = state.processed.get(identity);
@@ -524,8 +542,19 @@
     const response = await send(E.MESSAGE.CLASSIFY_COMMENT, {
       tweetId: comment.tweetId,
       text: inspectionContent,
+      comment,
+      scope: activeScope(),
       force: Boolean(opts.force)
     });
+    if (!requestIsCurrent(article, comment, generation) || state.processed.get(identity) !== pending || state.revealed.has(key)) {
+      if (generation === state.generation && state.processed.get(identity) === pending) {
+        state.processed.delete(identity);
+        if (state.commentStatuses.get(key) === pending) transitionPageStatus(key, null);
+        scheduleScan();
+        renderMonitor();
+      }
+      return;
+    }
     transitionPageStatus(key, response);
     state.processed.set(identity, response || { ok: false, error: 'NO_RESPONSE' });
     if (response && Number.isFinite(response.latencyMs)) state.pageLastLatency = response.latencyMs;
@@ -539,15 +568,35 @@
   }
 
   async function scan() {
-    if (!state.started || !activeDetail()) return;
+    resetRouteIfNeeded();
+    const generation = state.generation;
+    const scope = activeScope();
+    if (!state.started || !E.scopeEnabled(state.config, scope)) return;
     const rootId = E.rootTweetId(location.href);
-    const articles = Array.from(document.querySelectorAll(E.SELECTORS.tweet));
+    const column = document.querySelector('[data-testid="primaryColumn"]') || document.querySelector('main');
+    if (!column) return;
+    const articles = Array.from(column.querySelectorAll(E.SELECTORS.tweet));
+    for (const [identity, control] of state.controls) {
+      if (!control.article.isConnected) { control.host.remove(); state.controls.delete(identity); }
+    }
     const candidates = [];
     const templateCounts = new Map();
     for (const article of articles) {
-      if (!E.isReplyArticle(article, location.href) || E.tweetIdFromArticle(article) === rootId) continue;
+      if (scope === 'replies' && (!E.isReplyArticle(article, location.href) || E.tweetIdFromArticle(article) === rootId)) continue;
       const comment = E.extractComment(article);
       if (!comment) continue;
+      const key = articleKey(comment);
+      if (state.articleKeys.has(article) && state.articleKeys.get(article) !== key) {
+        // X recycles article elements while scrolling. A new post must not
+        // inherit the previous post's placeholder, reveal flag or pending CSS.
+        removePlaceholder(article);
+        article.removeAttribute('data-elon-work-state');
+        article.removeAttribute('data-elon-work-revealed');
+        for (const [identity, control] of state.controls) {
+          if (control.article === article) { control.host.remove(); state.controls.delete(identity); }
+        }
+      }
+      state.articleKeys.set(article, key);
       const templateKey = E.templateFingerprint(comment.text);
       if (templateKey) templateCounts.set(templateKey, (templateCounts.get(templateKey) || 0) + 1);
       candidates.push({ article, comment, templateKey });
@@ -556,6 +605,7 @@
       const { article, comment, templateKey } = candidate;
       const enrichedComment = { ...comment, templateCount: templateKey ? templateCounts.get(templateKey) || 1 : 0 };
       const hash = await E.hashText(E.composeComment(enrichedComment));
+      if (generation !== state.generation || contextKey() !== state.route || !E.scopeEnabled(state.config, activeScope())) return;
       const identity = `${articleKey(comment)}:${hash}`;
       ensureCheckControl(article, enrichedComment, identity, hash);
       if (!state.config || !state.config.enabled || !state.hasApiKey || article.dataset.elonWorkRevealed === 'true') continue;
@@ -570,11 +620,20 @@
   }
 
   function resetRouteIfNeeded() {
-    const next = location.href;
+    const next = contextKey();
     if (next === state.route) return;
     state.route = next;
+    resetProcessing(true);
+    scheduleScan();
+  }
+
+  function resetProcessing(clearRevealed) {
+    state.generation += 1;
     state.processed.clear();
-    state.revealed.clear();
+    if (clearRevealed) {
+      state.revealed.clear();
+      document.querySelectorAll('[data-elon-work-revealed]').forEach((article) => article.removeAttribute('data-elon-work-revealed'));
+    }
     state.pageChecked = 0;
     state.pageHidden = 0;
     state.pageSafe = 0;
@@ -585,6 +644,15 @@
     clearControls();
     clearAppliedStates();
     renderMonitor();
+  }
+
+  function applyState(next) {
+    if (!next || !next.config) return;
+    const changed = JSON.stringify(next.config) !== JSON.stringify(state.config) || Boolean(next.hasApiKey) !== state.hasApiKey;
+    if (!changed) return;
+    state.config = next.config;
+    state.hasApiKey = Boolean(next.hasApiKey);
+    resetProcessing(false);
     scheduleScan();
   }
 
@@ -594,41 +662,38 @@
     const response = await send(E.MESSAGE.GET_STATE);
     state.config = response && response.config ? response.config : E.createDefaultConfig();
     state.hasApiKey = Boolean(response && response.hasApiKey);
-    state.route = location.href;
+    state.route = contextKey();
     state.started = true;
     renderMonitor();
-    if (activeDetail()) scheduleScan();
+    scheduleScan();
 
     const isExtensionNode = (node) => node && node.nodeType === 1 && (node.matches('.elon-work-check-host, .elon-work-monitor, [data-elon-work-placeholder]') || Boolean(node.closest && node.closest('.elon-work-check-host, .elon-work-monitor, [data-elon-work-placeholder]')));
     const observer = new MutationObserver((mutations) => {
       const relevant = mutations.some((mutation) => {
-        if (isExtensionNode(mutation.target)) return false;
+        if (isExtensionNode(mutation.target) || isExtensionNode(mutation.target.parentElement)) return false;
+        if (mutation.type === 'characterData') return Boolean(mutation.target.parentElement && mutation.target.parentElement.closest(E.SELECTORS.tweet));
+        if (mutation.type === 'attributes') return true;
         return Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes)).some((node) => !isExtensionNode(node));
       });
-      if (relevant && activeDetail()) scheduleScan();
+      if (relevant) {
+        resetRouteIfNeeded();
+        scheduleScan();
+      }
     });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-selected', 'href'] });
     window.addEventListener('scroll', requestPosition, true);
     window.addEventListener('resize', requestPosition);
     setInterval(resetRouteIfNeeded, 750);
+    // Wake sanitized state reads immediately on settings changes, without
+    // exposing storage or the API key to the page/content script.
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message && message.type === E.MESSAGE.CONFIG_CHANGED) send(E.MESSAGE.GET_STATE).then(applyState);
+    });
     // Poll only the sanitized background state. This keeps secrets in the
     // service worker while still picking up settings changes promptly.
     setInterval(async () => {
       const next = await send(E.MESSAGE.GET_STATE);
-      if (!next || !next.config) return;
-      const changed = JSON.stringify(next.config) !== JSON.stringify(state.config) || Boolean(next.hasApiKey) !== state.hasApiKey;
-      if (!changed) return;
-      state.config = next.config;
-      state.hasApiKey = Boolean(next.hasApiKey);
-      state.processed.clear();
-      if (!state.config.enabled || !state.hasApiKey) clearAppliedStates();
-      for (const control of state.controls.values()) {
-        const hidden = control.article.classList.contains('elon-work-hidden') || control.article.style.display === 'none';
-        setControlsSuppressed(control.article, hidden);
-        renderCheckControl(control);
-      }
-      renderMonitor();
-      scheduleScan();
+      applyState(next);
     }, 3000);
   }
 

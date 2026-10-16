@@ -1,56 +1,104 @@
 # Elon的工作
 
-一个本地优先的 Chrome Manifest V3 扩展：只处理 X (`x.com/{user}/status/{id}`) 详情页的回复，使用用户自己的 TypeSafe Jev API Key，对高置信度的色情、性暗示和色情引流评论显示可恢复的隐藏占位符。
+一个用于 X 的 Chrome Manifest V3 扩展，使用你自己的 TypeSafe Jev API Key，按规则过滤详情页评论和首页 For you 帖子。命中内容在本地隐藏，保留原位恢复入口。
 
-[隐私政策](privacy.html)
+[English](README.en.md) · [隐私政策](privacy.html) · [MIT License](LICENSE)
 
-[Chrome Web Store 在线安装](https://chromewebstore.google.com/detail/elon%E7%9A%84%E5%B7%A5%E4%BD%9C/aillmgiicpcpnnggaahlkifchigmfome)
+## 当前功能
 
-[English](README.en.md)
+### 独立控制过滤范围
 
-[MIT License](LICENSE)
+| 范围 | 默认状态 | 处理方式 |
+| --- | --- | --- |
+| 详情页评论 | 开启 | 过滤回复，跳过详情页根帖 |
+| 首页 For you | 关闭 | 开启后过滤当前 For you 信息流中的帖子，包括转发、广告和引用文字 |
 
-## 本地手动编译与安装
+两个范围均受全局保护开关控制。Following、搜索、用户主页、列表和私信不处理。关闭范围开关或切出过滤范围后，已隐藏内容会恢复，在途检测结果也不会再次隐藏内容。
 
-环境要求：Node.js 20 或更高版本。
+### 结合文字、链接和作者资料识别
 
-在项目根目录执行以下命令，完成测试、检查并生成 Chrome 扩展产物：
+- 合并帖子正文和引用文字，提取页面展示的外链及链接卡片文字。
+- For you 帖子和带媒体的评论会尝试补充作者公开简介；只使用能核对作者身份的资料。
+- 简介获取失败时，继续使用已有正文、用户名和链接信息识别。纯媒体帖可以使用用户名识别；没有可用文字资料时跳过。
+- 内置色情 / 性暗示、色情引流 / 招揽、垃圾评论 / 模板刷屏三条规则，默认阈值分别为 65%、75%、78%。
+- 支持独立启停规则、调整阈值，以及添加、编辑和删除自然语言自定义规则。
+- For you 中正文仅含外链的帖子，spam 分数达到所设阈值即可隐藏；正常讨论文字和详情页评论保留原有防误伤条件，外链本身不会直接触发隐藏。
+
+**当前只分析文字，不识别或发送图片、视频画面，也不会访问帖子中的外链站点。** 因此，画面色情但文字普通的内容仍可能漏过。
+
+### 可恢复隐藏与成本控制
+
+- 命中后隐藏整张帖子或评论卡片，显示规则和置信度，可点击“查看帖子 / 查看评论”恢复。
+- 提供单条检查、重新检查和当前页面检测统计。
+- 使用分类缓存、请求去重、并发限制和每日请求上限控制重复调用；默认并发为 3，每日请求上限为 100,000，可在设置中调整。
+- API 失败、超时、未配置 Key 或配额耗尽时保持内容显示。
+- 作者资料在浏览器会话内缓存：成功 24 小时、失败 10 分钟，最多 200 位作者；设置页清空缓存时一并清除。
+
+每日上限是请求数量防护，不代表免费额度；实际文本分类费用由 TypeSafe 计费。
+
+## 本地安装与更新
+
+需要 Node.js 20 或更高版本，以及你自己的 TypeSafe API Key。
+
+在项目根目录执行：
 
 ```bash
 npm test
 npm run check
 npm run package
-npm run benchmark
 ```
 
-编译完成后，打开 `chrome://extensions`，开启“开发者模式”，点击“加载已解压的扩展程序”，选择项目下生成的 `dist/` 目录。第一次安装会自动打开 onboarding。
+然后在 Chrome 中操作：
 
-## 效果预览
+1. 打开 `chrome://extensions`，开启“开发者模式”。
+2. 点击“加载已解压的扩展程序”，选择本项目生成的 `dist/` 目录。
+3. 首次安装会打开引导页，配置并测试 TypeSafe API Key。
+4. 如需过滤首页帖子，在设置页开启“过滤 For you 帖子”。
+5. 打开或刷新 X 页面。
+
+更新代码后重新执行 `npm run package`，在扩展管理页点击本插件的“重新加载”，再刷新 X。已安装用户无需重复导入目录。
+
+## 界面预览
+
+评论区的可恢复隐藏占位符：
 
 <p align="center">
   <img src="docs/screenshots/comment-filtering.png" alt="X 评论区过滤效果" width="720">
 </p>
 
-命中的评论会被替换为可恢复的隐藏占位符；设置中心默认将每日 TypeSafe 请求上限设为 100,000，并提供缓存、并发和成本保护。
-
-过滤规则支持自定义：可以编辑规则名称、隐藏条件、排除条件和敏感度，用于适配不同社区的内容治理需求。
+自定义规则编辑器：
 
 <p align="center">
-  <img src="docs/screenshots/custom-rule-editor.png" alt="自定义评论过滤规则编辑器" width="720">
+  <img src="docs/screenshots/custom-rule-editor.png" alt="自定义过滤规则编辑器" width="720">
 </p>
 
-## 安全边界
+## 数据与隐私
 
-- API Key 只由 service worker 读取，存于 `chrome.storage.local`；popup、设置页只通过消息协议保存/测试。
-- content script 只向 service worker 发送 `{ tweetId, text }`，其中 `text` 合并了用户名和评论正文；不读取 cookie、history、X 登录信息或 root tweet 内容。
-- TypeSafe 请求使用 `https://api.typesafe.ai/v1/systemone`；API 返回不符合预期、超时、401、429 或 5xx 时 Fail Open。
-- 缓存只使用用户名/评论内容、规则 fingerprint 和 model 的 hash 作为 key，不保存评论原文。
-- `manifest.json` 未申请 `tabs`、`history`、`cookies`、`webRequest` 或 `<all_urls>`。
+- API Key 保存在浏览器本地，仅由 service worker 读取并用于向 TypeSafe 鉴权，不写入 X 页面 DOM 或调试日志。
+- 用户名、正文、引用文字、外链、卡片文字和可获取的作者公开简介，通过 HTTPS 直接发送至 TypeSafe 分类，不经过开发者自建服务器。
+- 作者简介通过无凭据请求公开 X 资料页获取，可能因登录页、403 或页面缺少资料而不可用。
+- 分类缓存保存判断结果，以输入文字、规则、模型和过滤范围生成的 hash 为 key，不保存帖子原文；公开简介单独缓存。
+- 不读取浏览历史、Cookie、X 登录凭证或私信，不修改 X 上的原始帖子。
+- 未申请 `tabs`、`history`、`cookies`、`webRequest` 或 `<all_urls>` 权限。
 
-## 测试覆盖
+完整说明见[隐私政策](privacy.html)。
 
-`tests/` 覆盖默认规则、规则编译、文本 normalize、Root Tweet/详情页范围、SHA-256 cache key、阈值决策、API 响应解析、存储脱敏和 Fail-Open 错误分类。实际 TypeSafe 调用需要用户自己的 API Key，因此自动化测试使用确定性 mock，不会产生 API 成本。
+## 开发验证
 
-本地语料库位于 `tests/fixtures/comment-corpus.json`，包含正常评论、医学/教育、普通恋爱、外貌评价、隐晦性暗示、私密内容、联系方式、emoji、长数字 ID、用户名色情/招揽信号，以及“搞hs / 小马开大车”和截图标注的 `emoji spam` 样本。`emoji spam` 样本额外记录 `spam: true`，由启用的 `spam_behavior` 规则单独评估；该规则同时使用 TypeSafe 分数和页面内去 emoji 后的重复模板信号，命中后会进入最终隐藏决策。当前 `npm run benchmark` 会将这些样本从色情规则指标中排除，但会单独输出 `spam-samples` 的 Precision/Recall/F1，不会把它们当作成功样本。配置 `.env` 中的 `TYPESAFE_API_KEY` 后运行 benchmark，脚本只输出 Precision、Recall、F1、误报/漏报 ID 和延迟，不输出 API Key；可用 `--limit=10` 做小样本检查，或 `--json` 输出不含原文的机器可读结果。
+`npm test` 使用确定性 mock，覆盖配置迁移、范围识别、引用与链接提取、作者资料校验及降级、判定阈值、缓存隔离、并发和 Fail Open，不会调用真实 TypeSafe API。
 
-也可以按语料 ID 精确回归：`bun run benchmark -- --id=hide-040`。单条 ID 会输出详细评估，包括用户名、正文、emoji 结构信号、默认规则概率/阈值/命中状态、最终判定和实际发送内容；多个 ID 使用逗号分隔：`bun run benchmark -- --ids=hide-040,hide-041`。
+语料位于 `tests/fixtures/comment-corpus.json`。如需评估真实模型，在 `.env` 或环境变量中配置 `TYPESAFE_API_KEY`，再按需运行以下命令。**这些命令会调用真实 API 并产生费用，不属于安装步骤。**
+
+```bash
+# 小样本评估
+npm run benchmark -- --limit=10
+
+# 指定样本调试，多个 ID 用逗号分隔
+npm run benchmark -- --id=hide-040
+npm run benchmark -- --ids=hide-040,hide-041
+
+# 完整语料评估
+npm run benchmark
+```
+
+评估输出 Precision、Recall、F1、误报 / 漏报 ID 和延迟，spam 样本单独统计。单条样本调试还会输出所用文字和各规则分数，不输出 API Key。

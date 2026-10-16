@@ -6,7 +6,7 @@
   const STATS_KEY = 'elonsWorkStats';
   const CACHE_KEY = 'elonsWorkCache';
   const MODEL_VERSION = 'jev-latest';
-  const DECISION_VERSION = 'decision-v2-combined-risk';
+  const DECISION_VERSION = 'decision-v3-text-link-evidence';
   const COMBINED_RISK_RULE_IDS = ['sexual_content', 'sexual_solicitation', 'spam_behavior'];
   const COMBINED_RISK_THRESHOLD = 1.05;
   const COMBINED_RISK_MIN_COMPONENT = 0.4;
@@ -19,6 +19,7 @@
     OPEN_ONBOARDING: 'OPEN_ONBOARDING',
     CLASSIFY_COMMENT: 'CLASSIFY_COMMENT',
     SAVE_CONFIG: 'SAVE_CONFIG',
+    CONFIG_CHANGED: 'CONFIG_CHANGED',
     RECORD_COMMENT_EVENT: 'RECORD_COMMENT_EVENT',
     CLEAR_CACHE: 'CLEAR_CACHE',
     OPEN_SETTINGS: 'OPEN_SETTINGS'
@@ -29,7 +30,7 @@
       id: 'sexual_content',
       name: '色情 / 性暗示',
       description: '隐藏色情、明显性暗示、性挑逗、擦边或自我性化表达的评论。',
-      instructions: '判断“用户名 + 评论正文”是否有色情、情色、明显性暗示、性挑逗、擦边或自我性化意图。用户名本身明显表达成人、福利、私密或性化招揽时，即使正文普通也判 true。先去掉 emoji 和装饰符号理解整段语义；隐晦黑话、缩写、谐音、拼音变体、只谈身体、私房内容、重复模板和性化 emoji 都可能是掩饰。代表性锚点包括“只进身体不进生活”“搞hs”“小马开大车”“比我好看的没我骚”，不是封闭关键词表。普通祝福、外貌/艺术/医学/新闻/交通讨论，以及孤立的“大车”、单个敏感词或零散 emoji 不判 true。',
+      instructions: '判断“用户名 + 作者公开简介（如有） + 评论或帖子正文（含引用文字）”是否有色情、情色、明显性暗示、性挑逗、擦边或自我性化意图。用户名本身明显表达成人、福利、私密或性化招揽时，即使正文普通也判 true。先去掉 emoji 和装饰符号理解整段语义；隐晦黑话、缩写、谐音、拼音变体、只谈身体、私房内容、重复模板和性化 emoji 都可能是掩饰。代表性锚点包括“只进身体不进生活”“搞hs”“小马开大车”“比我好看的没我骚”，不是封闭关键词表。结合作者公开简介、外链和链接卡片文字理解语义。明确的成人内容账号、泄露私密影像或成人片段推广可作为色情证据；不假定已经看过图片或视频。普通祝福、外貌/艺术/医学/新闻/交通讨论，以及未知域名、孤立的“大车”、单个敏感词或零散 emoji 不判 true。',
       trueCriteria: '用户名或正文以性、情色、性挑逗、自我性化、成人私密内容或隐晦性暗示为核心；性化语义与密集/连续/重复 emoji 同时出现时提高置信度。',
       falseCriteria: '普通姓名、正常聊天、恋爱、外貌、时尚/艺术、医学、新闻或交通语境；单个敏感词、普通 emoji、夸张账号名或“大车”等词没有性化上下文时不算 true。',
       threshold: 0.65,
@@ -40,7 +41,7 @@
       id: 'sexual_solicitation',
       name: '色情引流 / 招揽',
       description: '隐藏通过色情或性暗示吸引私聊、加账号、点击链接或购买服务的评论。',
-      instructions: '判断“用户名 + 评论正文”是否把色情、情色、成人私密内容或明显性暗示用于招揽、引流或诱导联系。成人服务、福利、私密、免费招揽或联系方式出现在用户名中时，即使正文普通也判 true。需要结合性化语义与行动号召；识别私信、Telegram/微信、点头像、进群、链接、关注、福利、写真、私密照、完整版、房间号、密码、会员、直播、长数字 ID，以及“成人会员今日特价”这类购买话术。',
+      instructions: '判断“用户名 + 作者公开简介（如有） + 评论或帖子正文（含引用文字）”是否把色情、情色、成人私密内容或明显性暗示用于招揽、引流或诱导联系。成人服务、福利、私密、免费招揽或联系方式出现在用户名中时，即使正文普通也判 true。需要结合性化语义与行动号召；识别私信、Telegram/微信、点头像、进群、链接、关注、福利、写真、私密照、完整版、房间号、密码、会员、直播、长数字 ID，以及“成人会员今日特价”这类购买话术。作者简介或卡片标题明确推广成人内容，并与帖子中的媒体外链、私聊入口组合出现时，即使帖子本身只是短句或 URL，也应识别；单独的普通外链不算色情引流。',
       trueCriteria: '性化/成人私密内容与私聊、联系方式、外链、点头像、关注、进群、约会、会员、直播、照片、购买或访问行动组合出现；重复 emoji 只能辅助，不单独构成引流。',
       falseCriteria: '普通姓名/账号名、普通 Telegram/社群、正常链接、新闻、教育、医学、时尚内容；单独出现“私信/关注/链接/会员”或 emoji 不算 true。',
       threshold: 0.75,
@@ -51,7 +52,7 @@
       id: 'spam_behavior',
       name: '垃圾评论 / 模板刷屏',
       description: '隐藏重复模板、低质批量评论、异常 emoji 组合和引流式刷屏内容。',
-      instructions: '判断 `content` 是否为垃圾评论、批量模板刷屏或低质互动诱导。`page_template_matches >= 2` 是强信号：去掉 emoji、标点和可替换 token 后句式重复时，即使表面是祝福或普通中文也判 true。`invisible_char_count >= 3` 且伴随 emoji 或模板结构时，也判为故意污染/规避检测。连续两个以上 emoji 夹在较长、无自然标点的句式中，且色情/垃圾语义得到中等支持时，也视为单条模板化 spam。重点识别复制粘贴骨架、随机 emoji 插入、空泛互动诱导和批量生成；单条自然评论、孤立 emoji 或单个不可见字符不算 spam。',
+      instructions: '判断 `content` 是否为垃圾评论、批量模板刷屏或低质互动诱导。`page_template_matches >= 2` 是强信号：去掉 emoji、标点和可替换 token 后句式重复时，即使表面是祝福或普通中文也判 true。`invisible_char_count >= 3` 且伴随 emoji 或模板结构时，也判为故意污染/规避检测。连续两个以上 emoji 夹在较长、无自然标点的句式中，且色情/垃圾语义得到中等支持时，也视为单条模板化 spam。同时判断推荐帖子中的批量外链引流：仅贴媒体链接或短链，结合卡片标题或作者简介体现低质批量推广时可判 spam，不要求必须含 emoji。正常新闻、研究、开源或原创作品的链接分享不算 spam。重点识别复制粘贴骨架、随机 emoji 插入、空泛互动诱导和批量生成；单条自然评论、孤立 emoji 或单个不可见字符不算 spam。',
       trueCriteria: '去掉 emoji/标点/可替换 token 后的页面近重复句式，随机替换 emoji 的复制模板，或多个不可见字符污染与 emoji/模板结构同时出现；也可结合低质空泛、互动诱导、批量生成特征。',
       falseCriteria: '一次性正常评论、具体观点、真实对话、普通祝福或自然使用 emoji；没有重复/模板证据时不要仅凭短句或 emoji 判 spam。',
       threshold: 0.78,
@@ -64,7 +65,8 @@
     enabled: true,
     onboardingCompleted: false,
     rulesVersion: 3,
-    commentsOnly: true,
+    filterReplies: true,
+    filterForYou: false,
     failOpen: true,
     preload: false,
     showPlaceholder: true,
@@ -139,7 +141,10 @@
       enabled: raw.enabled !== false,
       onboardingCompleted: raw.onboardingCompleted === true,
       rulesVersion: 3,
-      commentsOnly: raw.commentsOnly !== false,
+      // The old commentsOnly switch never affected filtering. Preserve the
+      // effective behaviour of existing installations when migrating it.
+      filterReplies: raw.filterReplies !== false,
+      filterForYou: raw.filterForYou === true,
       failOpen: raw.failOpen !== false,
       preload: raw.preload === true,
       showPlaceholder: raw.showPlaceholder !== false,
@@ -213,22 +218,45 @@
       .slice(0, 160);
   }
 
+  function externalUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+      if (/(^|\.)(?:x\.com|twitter\.com|twimg\.com)$/.test(url.hostname)) return '';
+      return url.href.slice(0, 1000);
+    } catch (_) { return ''; }
+  }
+
+  function linkEvidence(comment) {
+    const input = comment || {};
+    const links = [...new Set((Array.isArray(input.links) ? input.links : []).map(externalUrl).filter(Boolean))].slice(0, 8);
+    let remaining = normalizeText(input.text).replace(/https?:\/\/\S+/gi, '');
+    for (const link of links) remaining = remaining.replaceAll(link.replace(/^https?:\/\//, ''), '');
+    const linkOnly = links.length > 0 && !remaining.replace(/[\s\p{P}\p{S}]+/gu, '');
+    return { links, linkOnly };
+  }
+
   function composeComment(input) {
     const comment = input && typeof input === 'object' ? input : { text: input };
     const rawAuthor = String(comment.author || comment.username || comment.userName || '');
     const rawText = String(comment.text || '');
-    const author = normalizeText(rawAuthor);
+    const author = normalizeText(rawAuthor).slice(0, 300);
     const text = normalizeText(rawText);
-    const content = !author ? text : !text ? `[用户名] ${author}` : `[用户名] ${author}\n[评论正文] ${text}`;
+    const biography = normalizeText(comment.biography).slice(0, 600);
+    const links = linkEvidence(comment).links.join(' ').slice(0, 800);
+    const cardText = normalizeText(comment.cardText).slice(0, 500);
+    const evidence = [author ? `[用户名] ${author}` : '', biography ? `[作者公开简介] ${biography}` : '', links ? `[外链] ${links}` : '', cardText ? `[链接卡片文字] ${cardText}` : ''].filter(Boolean).join('\n');
     const authorEmoji = emojiSignals(author);
     const bodyEmoji = emojiSignals(text);
     const templateCount = Number(comment.templateCount) || 0;
     const invisibleCount = Number(comment.invisibleCharCount) || invisibleCharCount(rawAuthor) + invisibleCharCount(rawText);
-    if (!authorEmoji.count && !bodyEmoji.count && templateCount < 2 && invisibleCount < 1) return content;
+    const body = text ? `${evidence ? '[评论正文] ' : ''}${text}` : '';
+    if (!authorEmoji.count && !bodyEmoji.count && templateCount < 2 && invisibleCount < 1) return [evidence, body].filter(Boolean).join('\n').slice(0, MAX_COMMENT_LENGTH);
     const strippedAuthor = stripEmoji(author);
     const strippedBody = stripEmoji(text);
-    const signals = `${formatEmojiSignals('username', author)}; ${formatEmojiSignals('body', text)}; invisible_char_count=${invisibleCount}; username_without_emoji=${strippedAuthor || '—'}; body_without_emoji=${strippedBody || '—'}${templateCount >= 2 ? `; page_template_matches=${templateCount}` : ''}`;
-    return `${content}\n[emoji 结构信号] ${signals}`.slice(0, MAX_COMMENT_LENGTH);
+    const signals = `${formatEmojiSignals('username', author)}; ${formatEmojiSignals('body', text)}; invisible_char_count=${invisibleCount}; username_without_emoji=${strippedAuthor || '—'}; body_without_emoji=${strippedBody.slice(0, 600) || '—'}${templateCount >= 2 ? `; page_template_matches=${templateCount}` : ''}`;
+    // Reserve room for structural and author/link evidence before a long body.
+    return [evidence, `[emoji 结构信号] ${signals}`, body].filter(Boolean).join('\n').slice(0, MAX_COMMENT_LENGTH);
   }
 
   function buildQuestions(rules) {
@@ -336,7 +364,8 @@
       results[rule.id] = probability;
       const emojiClusterModelSupported = localSignals.spam.emojiClusterTemplate
         && ((results.sexual_content >= 0.45 && results.spam_behavior >= 0.15) || results.spam_behavior >= 0.45);
-      const spamModelSupported = localSignals.spam.bodyEmojiCount >= 1 || localSignals.spam.invisibleCount >= 3 || emojiClusterModelSupported;
+      const linkOnlyPost = context && context.scope === 'forYou' && context.linkEvidence && context.linkEvidence.linkOnly;
+      const spamModelSupported = localSignals.spam.bodyEmojiCount >= 1 || localSignals.spam.invisibleCount >= 3 || emojiClusterModelSupported || linkOnlyPost;
       if (rule.enabled !== false && probability >= normalizeThreshold(rule.threshold) && (rule.id !== 'spam_behavior' || spamModelSupported)) {
         matches.push({
           ruleId: rule.id,
@@ -426,10 +455,10 @@
     }))));
   }
 
-  async function cacheKey(text, rules, model) {
+  async function cacheKey(text, rules, model, scope) {
     const normalized = normalizeText(text);
     const fingerprint = await rulesFingerprint(rules);
-    return hashText(stableStringify({ normalized, fingerprint, model: model || MODEL_VERSION, decisionVersion: DECISION_VERSION }));
+    return hashText(stableStringify({ normalized, fingerprint, model: model || MODEL_VERSION, scope: scope || '', decisionVersion: DECISION_VERSION }));
   }
 
   function maskSecret(value) {
@@ -440,7 +469,25 @@
   }
 
   function isTweetDetailUrl(url) {
-    return /^https:\/\/(?:www\.)?x\.com\/[^/]+\/status\/\d+/.test(String(url || ''));
+    return /^https:\/\/(?:www\.)?x\.com\/[^/]+\/status\/\d+(?:[/?#]|$)/.test(String(url || ''));
+  }
+
+  function pageScope(url, document) {
+    if (isTweetDetailUrl(url)) return 'replies';
+    if (!/^https:\/\/(?:www\.)?x\.com\/home\/?(?:[?#]|$)/.test(String(url || ''))) return '';
+    // Never infer For you from tab position: X also offers Following and lists.
+    const tabs = Array.from(document.querySelectorAll('[role="tablist"] [role="tab"][aria-selected="true"]'));
+    const selected = tabs.find((tab) => /^(?:for\s+you|为你推荐|為你推薦|推荐|推薦)$/i.test(normalizeText(tab.textContent)));
+    return selected ? 'forYou' : '';
+  }
+
+  function scopeEnabled(config, scope) {
+    return Boolean(config && config.enabled && (scope === 'replies' ? config.filterReplies : scope === 'forYou' && config.filterForYou));
+  }
+
+  function normalizeHandle(value) {
+    const handle = String(value || '').replace(/^@/, '').toLowerCase();
+    return /^[a-z0-9_]{1,15}$/.test(handle) && !['home', 'search', 'explore', 'notifications', 'messages', 'settings', 'i', 'intent'].includes(handle) ? handle : '';
   }
 
   function rootTweetId(url) {
@@ -450,23 +497,79 @@
 
   function tweetIdFromArticle(article) {
     if (!article || !article.querySelector) return null;
-    const link = article.querySelector(SELECTORS.tweetLink);
+    const timestamp = article.querySelector('a[href*="/status/"] time');
+    const link = timestamp && timestamp.closest ? timestamp.closest('a') : article.querySelector(SELECTORS.tweetLink);
     const match = link && String(link.getAttribute('href') || '').match(/\/status\/(\d+)/);
     return match ? match[1] : null;
   }
 
   function extractComment(article) {
     if (!article || !article.querySelector) return null;
-    const textNode = article.querySelector(SELECTORS.tweetText);
-    const rawText = textNode ? String(textNode.textContent || '') : '';
+    const textNodes = article.querySelectorAll ? Array.from(article.querySelectorAll(SELECTORS.tweetText)) : [article.querySelector(SELECTORS.tweetText)].filter(Boolean);
+    const rawText = textNodes.map((node, index) => `${index ? '[引用文字] ' : ''}${node.textContent || ''}`).join('\n');
     const text = normalizeText(rawText);
     const userNode = article.querySelector(SELECTORS.userName);
     const rawAuthor = userNode ? String(userNode.textContent || '') : '';
     const author = normalizeText(rawAuthor);
     const tweetId = tweetIdFromArticle(article);
-    if (!tweetId || !text) return null;
+    if (!tweetId || (!text && !author)) return null;
+    const authorLink = userNode && userNode.querySelector && userNode.querySelector('a[href^="/"]');
+    const authorPath = authorLink && String(authorLink.getAttribute('href') || '').match(/^\/([a-zA-Z0-9_]{1,15})\/?$/);
+    const handle = normalizeHandle(authorPath ? authorPath[1] : (rawAuthor.match(/@([a-zA-Z0-9_]{1,15})(?![a-zA-Z0-9_])/) || [])[1]);
     const dirtyCount = invisibleCharCount(rawText) + invisibleCharCount(rawAuthor);
-    return dirtyCount ? { tweetId, text, author, invisibleCharCount: dirtyCount } : { tweetId, text, author };
+    const anchors = article.querySelectorAll ? Array.from(article.querySelectorAll('a[href]')) : [];
+    const links = [...new Set(anchors.map((anchor) => {
+      if (!anchor.getAttribute) return '';
+      return externalUrl(anchor.getAttribute('title')) || externalUrl(anchor.textContent) || externalUrl(anchor.getAttribute('href'));
+    }).filter(Boolean))].slice(0, 8);
+    const cards = article.querySelectorAll ? Array.from(article.querySelectorAll('[data-testid="card.wrapper"]')) : [];
+    const cardText = normalizeText(cards.map((card) => card.textContent || '').join(' ')).slice(0, 500);
+    const hasMedia = Boolean(article.querySelector('video, [data-testid="videoPlayer"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"]'));
+    const comment = { tweetId, text, author, ...(handle ? { handle } : {}), ...(links.length ? { links } : {}), ...(cardText ? { cardText } : {}), ...(hasMedia ? { hasMedia } : {}) };
+    return dirtyCount ? { ...comment, invisibleCharCount: dirtyCount } : comment;
+  }
+
+  function decodeHtml(value) {
+    return String(value || '').replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[\da-f]+);/gi, (entity) => {
+      const named = { '&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
+      if (named[entity.toLowerCase()]) return named[entity.toLowerCase()];
+      const code = entity.toLowerCase().startsWith('&#x') ? parseInt(entity.slice(3, -1), 16) : Number(entity.slice(2, -1));
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+    });
+  }
+
+  function profileBiography(html, requestedHandle) {
+    const handle = normalizeHandle(requestedHandle);
+    if (!handle || typeof html !== 'string' || html.length > 524288) return '';
+    const matchesAuthor = (value) => typeof value === 'string' && new RegExp(`^https://(?:www\\.)?(?:x\\.com|twitter\\.com)/${handle}/?$`, 'i').test(value);
+    const clean = (value) => typeof value === 'string' ? normalizeText(decodeHtml(value)).slice(0, 1000) : '';
+    // A description is accepted only when the same structured Person identifies
+    // the requested author. Generic login/SEO descriptions are not biographies.
+    for (const script of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const visit = (node) => {
+          if (!node || typeof node !== 'object') return '';
+          if (node['@type'] === 'Person' && (matchesAuthor(node.url) || (Array.isArray(node.sameAs) ? node.sameAs : [node.sameAs]).some(matchesAuthor))) return clean(node.description);
+          for (const child of Object.values(node)) {
+            if (child && typeof child === 'object') { const result = visit(child); if (result) return result; }
+          }
+          return '';
+        };
+        const biography = visit(JSON.parse(script[1]));
+        if (biography) return biography;
+      } catch (_) { /* Missing or malformed structured data: use username only. */ }
+    }
+    const meta = {};
+    for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+      const attributes = {};
+      for (const attr of tag[0].matchAll(/([\w:-]+)\s*=\s*(["'])([\s\S]*?)\2/g)) attributes[attr[1].toLowerCase()] = decodeHtml(attr[3]);
+      const key = (attributes.property || attributes.name || '').toLowerCase();
+      if (key) meta[key] = attributes.content || '';
+    }
+    const titleMatches = new RegExp(`\\(@${handle}\\)`, 'i').test(meta['og:title'] || '');
+    const description = clean(meta['og:description']);
+    if (matchesAuthor(meta['og:url']) && titleMatches && description && !/^(?:log in|sign in|the latest|don.t miss|follow .+ on (?:x|twitter))/i.test(description)) return description;
+    return '';
   }
 
   function isReplyArticle(article, url) {
@@ -606,6 +709,7 @@
     emojiSignals,
     stripEmoji,
     templateFingerprint,
+    linkEvidence,
     composeComment,
     buildQuestions,
     getProbability,
@@ -620,6 +724,10 @@
     cacheKey,
     maskSecret,
     isTweetDetailUrl,
+    pageScope,
+    scopeEnabled,
+    normalizeHandle,
+    profileBiography,
     rootTweetId,
     tweetIdFromArticle,
     extractComment,
