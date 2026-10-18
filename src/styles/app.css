@@ -162,6 +162,7 @@ body.ew-popup { width: 380px; min-width: 380px; }
 .ew-rule-card + .ew-rule-card { margin-top: 7px; }
 .ew-rule-card:hover { border-color: var(--ew-line-strong); }
 .ew-rule-card-copy { min-width: 0; flex: 1; }
+#keywordList .ew-rule-card-copy { overflow-wrap: anywhere; }
 .ew-rule-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; font-weight: 600; }
 .ew-rule-card-desc { color: var(--ew-muted); font-size: 11px; }
 .ew-rule-actions { display: flex; align-items: center; gap: 7px; }

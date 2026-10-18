@@ -2,6 +2,30 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const E = require('../src/shared/core.js');
 
+test('keyword defaults migrate once and respect a deleted or empty blacklist', () => {
+  assert.deepEqual(E.createDefaultConfig().blockedKeywords, ['女菩萨']);
+  assert.deepEqual(E.normalizeConfig({ rulesVersion: 3 }).blockedKeywords, ['女菩萨']);
+  assert.deepEqual(E.normalizeConfig({ blockedKeywords: [] }).blockedKeywords, []);
+  assert.deepEqual(E.normalizeConfig({ blockedKeywords: [' other ', 'OTHER', '', null, 123, '\u200b', '女\u200b菩萨'] }).blockedKeywords, ['other', '女菩萨']);
+});
+
+test('keyword matching uses literal source fields with Unicode and case normalization', () => {
+  for (const field of ['author', 'username', 'handle', 'text', 'biography', 'cardText']) {
+    const decision = E.localKeywordDecision({ [field]: '今天的女\u200b菩萨来了' }, ['女菩萨']);
+    assert.equal(decision.shouldHide, true, field);
+    assert.equal(decision.matches[0].keyword, '女菩萨');
+    assert.equal(decision.matches[0].source, 'local-keyword');
+    assert.equal(decision.matches[0].probability, undefined);
+  }
+  assert.equal(E.localKeywordDecision({ links: ['https://example.com/SPAM'] }, ['spam']).shouldHide, true);
+  assert.equal(E.localKeywordDecision({ text: 'ＡＤＵＬＴ' }, ['adult']).shouldHide, true);
+  assert.equal(E.localKeywordDecision({ text: 'anything' }, ['.*']).shouldHide, false);
+  assert.equal(E.localKeywordDecision({ text: '女菩萨' }, []).shouldHide, false);
+  assert.equal(E.localKeywordDecision({ author: '普通用户', text: '正常讨论' }, ['用户名', '评论正文']).shouldHide, false);
+  assert.equal(E.localKeywordDecision({ author: '女', text: '菩萨' }, ['女菩萨']).shouldHide, false);
+  assert.equal(E.localKeywordDecision({ text: 'x'.repeat(4000) + '女菩萨' }, ['女菩萨']).shouldHide, true);
+});
+
 test('default configuration exposes three enabled builtin rules', () => {
   const config = E.createDefaultConfig();
   assert.equal(config.rules.length, 3);
@@ -41,7 +65,7 @@ test('comment extraction and TypeSafe content include the display name and handl
     }
   };
   const comment = E.extractComment(article);
-  assert.deepEqual(comment, { tweetId: '123', text: '恭喜发财，祝你有美好的一天', author: '卫潼笑♥处男免费♥ @example', handle: 'example' });
+  assert.deepEqual(comment, { tweetId: '123', text: '恭喜发财，祝你有美好的一天', author: '卫潼笑♥处男免费♥ @example', handle: 'example', keywordFields: ['卫潼笑♥处男免费♥ @example', 'example', '恭喜发财，祝你有美好的一天'] });
   const composed = E.composeComment(comment);
   assert.match(composed, /\[用户名\] 卫潼笑♥处男免费♥ @example/);
   assert.match(composed, /\[评论正文\] 恭喜发财，祝你有美好的一天/);
