@@ -184,7 +184,7 @@
             <div class="data-item"><strong>X 用户名与评论正文</strong><span>从当前启用范围的评论或 For you 帖子中读取（含引用文字），用于生成过滤判定；输入包括页面展示的外链、链接卡片文字、emoji、标点和必要的结构信号；不读取或发送媒体画面，不访问外链站点。</span></div>
             <div class="data-item"><strong>作者公开简介</strong><span>For you 帖子及带媒体的评论会按需无凭据读取作者公开 X 资料页，仅使用能核对作者身份的简介。简介在浏览器会话内缓存最多 24 小时，失败结果缓存 10 分钟，最多 200 位作者；可在设置中清空缓存。获取失败时按用户名识别。</span></div>
             <div class="data-item"><strong>TypeSafe API Key</strong><span>由用户主动输入，保存在当前浏览器的本地存储中，仅用于向 TypeSafe 发起鉴权请求。</span></div>
-            <div class="data-item"><strong>本地配置与统计</strong><span>包括启用状态、规则、阈值、检查数量、隐藏数量和请求数量，用于维持扩展设置与界面显示。</span></div>
+            <div class="data-item"><strong>本地配置与统计</strong><span>包括启用状态、关键词黑名单、规则、阈值、检查数量、隐藏数量和请求数量，用于维持扩展设置与界面显示。</span></div>
             <div class="data-item"><strong>临时分类缓存</strong><span>扩展使用浏览器会话存储缓存重复评论的分类结果，缓存 key 使用内容和规则的 hash，不保存评论原文。</span></div>
           </div>
           <h3>不会收集的内容</h3>
@@ -203,7 +203,7 @@
 
         <section id="sharing">
           <h2>如何共享数据</h2>
-          <p>为完成评论分类，评论相关内容会通过 HTTPS 发送至 <a href="https://typesafe.ai/" target="_blank" rel="noopener noreferrer">TypeSafe</a> API。TypeSafe 对收到的数据的处理、保留和删除受其自身服务条款与隐私政策约束；建议用户同时阅读 TypeSafe 的相关政策。</p>
+          <p>本地关键词命中后直接隐藏，不发送至 TypeSafe。未命中时，为完成评论分类，评论相关内容会通过 HTTPS 发送至 <a href="https://typesafe.ai/" target="_blank" rel="noopener noreferrer">TypeSafe</a> API。TypeSafe 对收到的数据的处理、保留和删除受其自身服务条款与隐私政策约束；建议用户同时阅读 TypeSafe 的相关政策。</p>
           <p>扩展开发者不运营用于接收评论内容的服务器，也不会人工查看评论内容。除 TypeSafe 这一提供分类服务的必要服务商外，扩展不会向其他第三方共享这些内容。</p>
           <p>API Key 不会发送给扩展开发者；它只在浏览器本地保存，并作为请求凭证发送给 TypeSafe。</p>
         </section>
@@ -216,12 +216,12 @@
             <li>用户可以在设置中心更换或删除 API Key，并清空本地分类缓存。</li>
             <li>卸载扩展会移除其浏览器本地存储；TypeSafe 侧的数据保留由 TypeSafe 的政策决定。</li>
           </ul>
-          <p>任何网络错误、API 超时、鉴权失败或配额耗尽时，扩展会保持评论显示，不会在不确定时隐藏内容。</p>
+          <p>任何网络错误、API 超时、鉴权失败或配额耗尽时，扩展会停止 AI 过滤；本地关键词黑名单仍生效，未命中的内容保持显示。</p>
         </section>
 
         <section id="controls">
           <h2>你的控制权</h2>
-          <p>你可以随时暂停保护、独立开关详情页评论或 For you 过滤、关闭单项规则、修改阈值、关闭评论检查按钮、删除 API Key 或清除本地缓存。扩展只改变本地页面显示，不删除或修改 X 上的原评论。</p>
+          <p>你可以随时暂停保护、独立开关详情页评论或 For you 过滤、增删关键词黑名单、关闭单项规则、修改阈值、关闭评论检查按钮、删除 API Key 或清除本地缓存。扩展只改变本地页面显示，不删除或修改 X 上的原评论。</p>
           <p>首次输入 API Key 前，请确认你理解并同意：用户名、正文（含引用文字）及可获取的作者公开简介会被发送给 TypeSafe 进行分类。</p>
         </section>
 

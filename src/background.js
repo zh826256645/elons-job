@@ -252,16 +252,21 @@ importScripts('shared/core.js');
     const config = await E.loadConfig(runtime, true);
     const rules = E.activeRules(config);
     let text = E.normalizeText(payload && payload.text);
-    if (!config.enabled || !rules.length) return { ok: true, shouldHide: false, matches: [], results: {} };
+    if (!config.enabled) return { ok: true, shouldHide: false, matches: [], results: {} };
     if (payload && payload.scope && !E.scopeEnabled(config, payload.scope)) return { ok: true, shouldHide: false, matches: [], results: {} };
+    const comment = payload && payload.comment;
+    const localDecision = E.localKeywordDecision(comment || { text: payload && payload.text }, config.blockedKeywords);
+    if (localDecision.shouldHide) return { ok: true, ...localDecision };
+    if (!rules.length) return { ok: true, shouldHide: false, matches: [], results: {} };
     if (!text || text.length < 2) return { ok: true, shouldHide: false, matches: [], results: {} };
     if (!config.typesafeApiKey) return { ok: false, error: 'API_KEY_MISSING' };
 
     // For you and media replies need author context even when their body is a
     // short caption or URL. Public-profile failures never stop classification.
-    const comment = payload && payload.comment;
     if (comment && E.normalizeHandle(comment.handle) && (payload.scope === 'forYou' || comment.hasMedia || !comment.text)) {
       const biography = await authorBiography(comment.handle);
+      const enrichedDecision = E.localKeywordDecision({ ...comment, biography }, config.blockedKeywords);
+      if (enrichedDecision.shouldHide) return { ok: true, ...enrichedDecision };
       text = E.normalizeText(E.composeComment({ ...comment, biography }));
     }
     if (payload.scope === 'forYou') text = E.normalizeText(`[过滤范围] X 首页 For you 推荐帖子\n${text}`);

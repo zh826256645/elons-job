@@ -31,6 +31,19 @@ test('extraction retains expanded links, card text and media presence without im
   assert.equal(content.includes('data:image'), false);
 });
 
+test('local keywords inspect full source text without AI truncation or generated quote labels', () => {
+  const article = articleFixture();
+  const original = article.querySelectorAll;
+  article.querySelectorAll = (selector) => selector === E.SELECTORS.tweetText
+    ? [{ textContent: '普通内容'.repeat(1500) }, { textContent: '女菩萨' }]
+    : original(selector);
+  const comment = E.extractComment(article);
+  assert.equal(comment.text.includes('女菩萨'), false);
+  assert.equal(E.localKeywordDecision(comment, ['女菩萨']).shouldHide, true);
+  assert.equal(E.localKeywordDecision(comment, ['引用文字']).shouldHide, false);
+  assert.ok(E.composeComment(comment).length <= E.MAX_COMMENT_LENGTH);
+});
+
 test('For you trusts a threshold-crossing spam score on link-only posts', () => {
   const comment = { author: 'Gabriel @example', text: 'https://clips.example/video.mp4', links: ['https://clips.example/video.mp4'], hasMedia: true };
   const context = { scope: 'forYou', content: E.composeComment(comment), linkEvidence: E.linkEvidence(comment) };

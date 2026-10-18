@@ -37,11 +37,12 @@
     currentState = state;
     const config = state.config;
     const stats = state.stats;
+    const protectionReady = state.hasApiKey || config.blockedKeywords.length > 0;
     $('enabledToggle').checked = config.enabled;
-    $('shield').classList.toggle('off', !config.enabled || !state.hasApiKey);
+    $('shield').classList.toggle('off', !config.enabled || !protectionReady);
     $('statusTitle').textContent = config.enabled ? '保护状态' : '保护已暂停';
-    $('statusBadge').textContent = !state.hasApiKey ? 'KEY REQUIRED' : config.enabled ? 'SHIELD ON' : 'PAUSED';
-    $('statusBadge').className = `ew-chip ${state.hasApiKey && config.enabled ? 'green' : 'amber'}`;
+    $('statusBadge').textContent = !config.enabled ? 'PAUSED' : state.hasApiKey ? 'SHIELD ON' : protectionReady ? 'LOCAL ONLY' : 'KEY REQUIRED';
+    $('statusBadge').className = `ew-chip ${protectionReady && config.enabled ? 'green' : 'amber'}`;
     $('checkedCount').textContent = String(stats.totalChecked || 0);
     $('hiddenCount').textContent = String(stats.totalHidden || 0);
     $('requestCount').textContent = String(stats.requests || 0);
@@ -72,7 +73,7 @@
     $('saveKeyButton').textContent = '测试中…';
     const test = await send(E.MESSAGE.TEST_CONNECTION, { apiKey });
     if (!test.ok) {
-      message.textContent = `连接失败：${test.error || 'API_UNAVAILABLE'}。插件会保持放行。`;
+      message.textContent = `连接失败：${test.error || 'API_UNAVAILABLE'}。本地关键词黑名单仍生效。`;
       message.classList.remove('ew-hidden');
     } else {
       await send(E.MESSAGE.SAVE_API_KEY, { apiKey });

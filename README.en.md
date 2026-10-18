@@ -15,6 +15,13 @@ A Chrome Manifest V3 extension for X. Use your own TypeSafe Jev API key to filte
 
 The global protection switch controls both scopes. Following, search, profiles, lists and direct messages are excluded. Disabling a scope or leaving it restores hidden content and invalidates pending results.
 
+### Local keyword blacklist
+
+- Includes “女菩萨” by default. Add or delete keywords in settings; an empty list disables keyword filtering, and updates preserve deletions.
+- Within enabled scopes, a keyword in the username, body (including quotes), external links, card text or available author biography hides the card before AI classification. No API key or request quota is needed.
+- Uses literal substring matching, ignoring English case, Unicode width differences and invisible characters. Regular expressions are not supported.
+- Shows matched keywords with an in-place restore button. Nonmatching content continues through the existing AI checks.
+
 ### Text, links and author context
 
 - Combines body and quoted text with displayed external links and link-card text.
@@ -31,14 +38,14 @@ The global protection switch controls both scopes. Following, search, profiles, 
 - Hides the entire matching card, displays its rule and confidence, and offers an in-place restore button.
 - Provides per-item checks, rechecks and page inspection statistics.
 - Uses classification caching, request deduplication, concurrency limits and a daily request cap. Defaults are 3 concurrent requests and 100,000 requests per day, adjustable in settings.
-- Leaves content visible when the API fails, times out, has no key or reaches the request cap.
+- Stops AI filtering when the API fails, times out, has no key or reaches the request cap. Local keyword filtering remains active.
 - Caches public author information in browser session storage: successful lookups for 24 hours, failures for 10 minutes, up to 200 authors. The settings cache action clears it as well.
 
 The daily cap limits request count; it is not a free allowance. TypeSafe bills actual text classification usage.
 
 ## Local installation and updates
 
-Requirements: Node.js 20 or later and your own TypeSafe API key.
+Requirements: Node.js 20 or later. AI filtering also needs your own TypeSafe API key; local keyword filtering works without one.
 
 Run from the project root:
 
@@ -75,7 +82,7 @@ Custom rule editor:
 ## Data and privacy
 
 - The API key is stored locally and read only by the service worker for TypeSafe authentication. It is not written to the X page DOM or debug logs.
-- Usernames, body and quoted text, links, card text and available public biographies are sent directly to TypeSafe over HTTPS, without a developer-operated backend.
+- Local keyword matches are not sent to TypeSafe. Nonmatching usernames, body and quoted text, links, card text and available public biographies are sent directly to TypeSafe over HTTPS, without a developer-operated backend.
 - Public author pages are requested without credentials. Login pages, HTTP 403 responses or missing metadata can make biographies unavailable.
 - Classification results are cached under hashes of input text, rules, model and scope; raw post text is not stored. Public biographies have a separate cache.
 - The extension does not read browsing history, cookies, X login credentials or direct messages, or modify original posts on X.

@@ -57,13 +57,13 @@
   }
 
   function requestIsCurrent(article, comment, generation) {
-    if (generation !== state.generation || contextKey() !== state.route || !E.scopeEnabled(state.config, activeScope()) || !state.hasApiKey || !article.isConnected) return false;
+    if (generation !== state.generation || contextKey() !== state.route || !E.scopeEnabled(state.config, activeScope()) || !article.isConnected) return false;
     const current = E.extractComment(article);
     return Boolean(current && articleKey(current) === articleKey(comment));
   }
 
   function articleKey(comment) {
-    return `${comment.tweetId}:${comment.author || ''}:${comment.text}:${JSON.stringify({ links: comment.links || [], cardText: comment.cardText || '', hasMedia: Boolean(comment.hasMedia) })}`;
+    return `${comment.tweetId}:${comment.author || ''}:${comment.text}:${JSON.stringify({ links: comment.links || [], cardText: comment.cardText || '', keywordFields: comment.keywordFields || [], hasMedia: Boolean(comment.hasMedia) })}`;
   }
 
   function report(action) {
@@ -146,6 +146,7 @@
     details.className = 'elon-work-placeholder-details';
     const config = state.config || {};
     details.textContent = state.config && state.config.showPlaceholder === false ? `点击“查看${noun}”恢复` : matches.map((match) => {
+      if (match.source === 'local-keyword') return match.name;
       if (config.showConfidence === false) return match.name;
       const score = match.source === 'combined-risk-signal'
         ? ` · 合计 ${Math.round(match.combinedScore * 100)}%`
@@ -326,9 +327,9 @@
     if (!state.config || !state.config.enabled) {
       control.status.textContent = '保护已暂停';
       control.detail.textContent = '打开插件后可恢复检查。';
-    } else if (!state.hasApiKey) {
+    } else if (!state.hasApiKey && !(result && result.ok)) {
       control.status.textContent = '等待 API Key';
-      control.detail.textContent = '先连接 TypeSafe，评论会保持显示。';
+      control.detail.textContent = '关键词黑名单仍生效；连接 TypeSafe 后可启用 AI 检查。';
       control.recheck.hidden = false;
       control.recheck.textContent = '打开设置';
     } else if (!result) {
@@ -390,7 +391,7 @@
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!state.hasApiKey) {
+      if (!state.hasApiKey && !E.localKeywordDecision(control.comment, state.config.blockedKeywords).shouldHide) {
         send(E.MESSAGE.OPEN_SETTINGS);
         return;
       }
@@ -400,7 +401,7 @@
     recheck.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!state.hasApiKey) {
+      if (!state.hasApiKey && !E.localKeywordDecision(control.comment, state.config.blockedKeywords).shouldHide) {
         send(E.MESSAGE.OPEN_SETTINGS);
         return;
       }
@@ -436,7 +437,7 @@
     const monitor = state.monitor;
     if (!monitor) return;
     const scope = activeScope();
-    const detail = !scope ? '此页面不在过滤范围' : !state.config || !state.config.enabled ? '保护已暂停' : !E.scopeEnabled(state.config, scope) ? '当前范围过滤已关闭' : !state.hasApiKey ? '等待配置 TypeSafe API Key' : state.pagePending ? '正在检查当前页面' : state.pageErrors ? '部分检查失败，内容保持显示' : '当前页面检查完成';
+    const detail = !scope ? '此页面不在过滤范围' : !state.config || !state.config.enabled ? '保护已暂停' : !E.scopeEnabled(state.config, scope) ? '当前范围过滤已关闭' : !state.hasApiKey ? '仅使用本地关键词黑名单' : state.pagePending ? '正在检查当前页面' : state.pageErrors ? '部分检查失败，内容保持显示' : '当前页面检查完成';
     monitor.status.textContent = detail;
     monitor.summary.textContent = `已检查 ${state.pageChecked} · 隐藏 ${state.pageHidden}`;
     monitor.checked.textContent = String(state.pageChecked);
@@ -532,6 +533,9 @@
     }
     if (opts.force && previous && previous.pending) return;
 
+    const localDecision = E.localKeywordDecision(comment, config.blockedKeywords);
+    if (!localDecision.shouldHide && !state.hasApiKey) return;
+
     const pending = { pending: true };
     transitionPageStatus(key, pending);
     state.processed.set(identity, pending);
@@ -539,7 +543,7 @@
     if (config.preload) article.classList.add('elon-work-pending');
     report(knownComment ? 'recheck' : 'checked');
     renderCheckControl(control);
-    const response = await send(E.MESSAGE.CLASSIFY_COMMENT, {
+    const response = localDecision.shouldHide ? { ok: true, ...localDecision } : await send(E.MESSAGE.CLASSIFY_COMMENT, {
       tweetId: comment.tweetId,
       text: inspectionContent,
       comment,
@@ -608,7 +612,7 @@
       if (generation !== state.generation || contextKey() !== state.route || !E.scopeEnabled(state.config, activeScope())) return;
       const identity = `${articleKey(comment)}:${hash}`;
       ensureCheckControl(article, enrichedComment, identity, hash);
-      if (!state.config || !state.config.enabled || !state.hasApiKey || article.dataset.elonWorkRevealed === 'true') continue;
+      if (!state.config || !state.config.enabled || article.dataset.elonWorkRevealed === 'true') continue;
       classifyArticle(article, enrichedComment, { hash, identity });
     }
     renderMonitor();

@@ -43,9 +43,26 @@
     $('sideRuleCount').textContent = `${active} 活跃`;
   }
 
+  function renderKeywords() {
+    const keywords = state.config.blockedKeywords;
+    $('sideKeywordCount').textContent = String(keywords.length);
+    const rows = keywords.map((keyword) => {
+      const row = document.createElement('div'); row.className = 'ew-rule-card';
+      const label = document.createElement('span'); label.className = 'ew-rule-card-copy'; label.textContent = keyword;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'ew-button danger small'; remove.textContent = '删除'; remove.setAttribute('aria-label', `删除关键词 ${keyword}`);
+      remove.addEventListener('click', () => persist({ blockedKeywords: state.config.blockedKeywords.filter((value) => value !== keyword) }));
+      row.append(label, remove);
+      return row;
+    });
+    if (!rows.length) {
+      const empty = document.createElement('p'); empty.className = 'ew-help'; empty.textContent = '暂无屏蔽关键词。'; rows.push(empty);
+    }
+    $('keywordList').replaceChildren(...rows);
+  }
+
   function render() {
     const config = state.config; const stats = state.stats;
-    $('headerStatus').innerHTML = state.hasApiKey ? '<span class="ew-dot"></span> 防护已就绪' : '<span class="ew-dot warn"></span> 需要 API Key';
+    $('headerStatus').innerHTML = state.hasApiKey ? '<span class="ew-dot"></span> 防护已就绪' : config.blockedKeywords.length ? '<span class="ew-dot"></span> 本地关键词防护' : '<span class="ew-dot warn"></span> 需要 API Key';
     $('enabledToggle').checked = config.enabled; $('filterRepliesToggle').checked = config.filterReplies; $('filterForYouToggle').checked = config.filterForYou; $('failOpenToggle').checked = config.failOpen;
     $('placeholderToggle').checked = config.showPlaceholder; $('checkControlsToggle').checked = config.showCheckControls; $('confidenceToggle').checked = config.showConfidence; $('preloadToggle').checked = config.preload; $('debugToggle').checked = config.debug;
     $('apiKeyField').value = state.apiKeyMask || '';
@@ -56,6 +73,7 @@
     $('concurrencySelect').value = String(config.maxConcurrency); $('dailyLimitInput').value = String(config.dailyLimit); $('cacheTtlSelect').value = String(config.cacheTtlHours);
     $('requestPreview').textContent = JSON.stringify({ model: config.model, state: { content: '<comment text>' }, questions: E.buildQuestions(E.activeRules(config)) }, null, 2);
     renderRules();
+    renderKeywords();
   }
 
   async function refresh() { const response = await send(E.MESSAGE.GET_STATE); if (response.ok) { state = response; render(); } }
@@ -67,6 +85,13 @@
   }
 
   function closeRuleModal() { $('modalBackdrop').classList.add('ew-hidden'); editingId = null; }
+
+  $('keywordForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const keywords = E.normalizeKeywords([...state.config.blockedKeywords, $('keywordInput').value]);
+    if (keywords.length === state.config.blockedKeywords.length) { showToast('请输入非空且不重复的关键词', 'error'); return; }
+    if (await persist({ blockedKeywords: keywords })) $('keywordInput').value = '';
+  });
 
   $('enabledToggle').addEventListener('change', (event) => persist({ enabled: event.target.checked }));
   $('filterRepliesToggle').addEventListener('change', (event) => persist({ filterReplies: event.target.checked }));

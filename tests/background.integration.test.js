@@ -96,6 +96,70 @@ function createBackgroundHarness(harnessOptions = {}) {
   return { dispatch, requests, profileRequests, notifications, local, session, createdTabs, startupListener, get maxActiveRequests() { return maxActiveRequests; } };
 }
 
+test('local keywords hide without an API key, active AI rules, or profile requests', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness();
+  const comment = { author: '女菩萨 @example', handle: 'example', text: '普通正文', hasMedia: true };
+  const payload = { text: E.composeComment(comment), comment, scope: 'replies' };
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { rules: E.DEFAULT_RULES.map((rule) => ({ ...rule, enabled: false })) } });
+  let result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+  assert.equal(result.ok, true);
+  assert.equal(result.shouldHide, true);
+  assert.equal(result.matches[0].keyword, '女菩萨');
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+  assert.equal(result.shouldHide, true);
+  assert.equal(harness.requests.length, 0);
+  assert.equal(harness.profileRequests.length, 0);
+  const state = await harness.dispatch({ type: E.MESSAGE.GET_STATE });
+  assert.equal(state.stats.requests, 0);
+});
+
+test('local keyword decisions respect protection and scope switches', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness();
+  const classify = (scope) => harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { text: '女菩萨', scope } });
+  assert.equal((await classify('forYou')).shouldHide, false);
+  assert.equal((await classify('replies')).shouldHide, true);
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { filterForYou: true, filterReplies: false } });
+  assert.equal((await classify('forYou')).shouldHide, true);
+  assert.equal((await classify('replies')).shouldHide, false);
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { enabled: false } });
+  assert.equal((await classify('forYou')).shouldHide, false);
+  assert.equal(harness.requests.length, 0);
+});
+
+test('keyword edits override cached AI results and deleting all words persists', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness();
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { blockedKeywords: [], dailyLimit: 1 } });
+  const payload = { text: '女菩萨', scope: 'replies' };
+  assert.equal((await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload })).shouldHide, false);
+  assert.equal(harness.requests.length, 1);
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { blockedKeywords: ['女菩萨'] } });
+  const blocked = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload });
+  assert.equal(blocked.shouldHide, true);
+  assert.equal(blocked.matches[0].source, 'local-keyword');
+  assert.equal((await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { ...payload, force: true } })).shouldHide, true);
+  assert.equal(harness.requests.length, 1);
+  await harness.dispatch({ type: E.MESSAGE.SAVE_CONFIG, payload: { blockedKeywords: [] } });
+  assert.equal((await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload })).shouldHide, false);
+  const state = await harness.dispatch({ type: E.MESSAGE.GET_STATE });
+  assert.equal(state.config.blockedKeywords.length, 0);
+});
+
+test('keywords in newly fetched biographies hide before AI classification', async () => {
+  const E = require('../src/shared/core.js');
+  const harness = createBackgroundHarness({ profileResponse: async () => ({ ok: true, text: async () => '<script type="application/ld+json">{"@type":"Person","url":"https://x.com/example","description":"女菩萨"}</script>' }) });
+  await harness.dispatch({ type: E.MESSAGE.SAVE_API_KEY, payload: { apiKey: 'apikey_secret' } });
+  const comment = { handle: 'example', author: 'Example', text: '', hasMedia: true };
+  const result = await harness.dispatch({ type: E.MESSAGE.CLASSIFY_COMMENT, payload: { comment, text: E.composeComment(comment), scope: 'replies' } });
+  assert.equal(result.shouldHide, true);
+  assert.equal(harness.profileRequests.length, 1);
+  assert.equal(harness.requests.length, 0);
+});
+
 test('scope settings persist independently and notify X tabs without secret data', async () => {
   const E = require('../src/shared/core.js');
   const harness = createBackgroundHarness();

@@ -78,6 +78,7 @@
     debug: false,
     model: MODEL_VERSION,
     apiEndpoint: API_ENDPOINT,
+    blockedKeywords: ['女菩萨'],
     rules: DEFAULT_RULES
   };
 
@@ -156,6 +157,7 @@
       debug: raw.debug === true,
       model: String(raw.model || MODEL_VERSION).slice(0, 80),
       apiEndpoint: String(raw.apiEndpoint || API_ENDPOINT),
+      blockedKeywords: normalizeKeywords(Array.isArray(raw.blockedKeywords) ? raw.blockedKeywords : DEFAULT_CONFIG.blockedKeywords),
       rules
     };
   }
@@ -178,6 +180,34 @@
 
   function invisibleCharCount(value) {
     return (String(value || '').match(INVISIBLE_CHAR_RE) || []).length;
+  }
+
+  function keywordText(value) {
+    return String(value || '').normalize('NFKC').replace(INVISIBLE_CHAR_RE, '').toLowerCase();
+  }
+
+  function normalizeKeywords(values) {
+    const seen = new Set();
+    return (values || []).filter((value) => typeof value === 'string').map(normalizeText).filter((value) => {
+      const key = keywordText(value);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function localKeywordDecision(input, keywords) {
+    const comment = input && typeof input === 'object' ? input : { text: input };
+    // Match source fields separately, without generated labels or length limits.
+    const sourceFields = Array.isArray(comment.keywordFields) ? comment.keywordFields : [comment.author, comment.username, comment.userName, comment.handle, comment.text, comment.cardText, ...(Array.isArray(comment.links) ? comment.links : [])];
+    const fields = [...sourceFields, comment.biography].map(keywordText);
+    const matches = normalizeKeywords(keywords).filter((keyword) => fields.some((field) => field.includes(keywordText(keyword)))).map((keyword) => ({
+      ruleId: 'local_keyword',
+      name: `关键词黑名单：“${keyword}”`,
+      keyword,
+      source: 'local-keyword'
+    }));
+    return { shouldHide: matches.length > 0, matches, results: {} };
   }
 
   const EMOJI_TOKEN_RE = /(?:\p{Extended_Pictographic}|\p{Regional_Indicator})/gu;
@@ -525,7 +555,8 @@
     const cards = article.querySelectorAll ? Array.from(article.querySelectorAll('[data-testid="card.wrapper"]')) : [];
     const cardText = normalizeText(cards.map((card) => card.textContent || '').join(' ')).slice(0, 500);
     const hasMedia = Boolean(article.querySelector('video, [data-testid="videoPlayer"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"]'));
-    const comment = { tweetId, text, author, ...(handle ? { handle } : {}), ...(links.length ? { links } : {}), ...(cardText ? { cardText } : {}), ...(hasMedia ? { hasMedia } : {}) };
+    const keywordFields = [rawAuthor, handle, ...textNodes.map((node) => node.textContent || ''), ...links, ...cards.map((card) => card.textContent || '')].filter(Boolean);
+    const comment = { tweetId, text, author, keywordFields, ...(handle ? { handle } : {}), ...(links.length ? { links } : {}), ...(cardText ? { cardText } : {}), ...(hasMedia ? { hasMedia } : {}) };
     return dirtyCount ? { ...comment, invisibleCharCount: dirtyCount } : comment;
   }
 
@@ -705,6 +736,8 @@
     sanitizeConfig,
     activeRules,
     normalizeText,
+    normalizeKeywords,
+    localKeywordDecision,
     invisibleCharCount,
     emojiSignals,
     stripEmoji,
